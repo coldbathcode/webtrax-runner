@@ -13,7 +13,7 @@ import { parseArgs } from 'node:util'
 import { crawl, LocalSink, MemorySink, TeeSink, type CrawlResult } from '@webtrax/engine'
 import { createGuardedFetch } from '@webtrax/net-guard'
 import { atLeast, BOT_USER_AGENT } from '@webtrax/protocol'
-import { buildReport, renderConsole, renderHtml, renderJson, renderMarkdown, shortId } from '@webtrax/reporters'
+import { buildReport, renderConsole, renderHtml, renderJson, renderJunit, renderMarkdown, renderSarif, shortId } from '@webtrax/reporters'
 import { serveMcp } from './mcp'
 import { listRuns, readRun as readRunAt, RULES, runsDir, SUITES } from './runs'
 import { buildSpec, CONFIG_FILE, ConfigError, configTemplate, loadConfig, normaliseTarget, parseFailOn, parseSuites, type FailOn } from './config'
@@ -50,7 +50,7 @@ Options for check
   --max-depth <n>        link depth from the start page (default 10)
   --suites <list>        links,security,seo (default: all)
   --fail-on <severity>   exit 1 at this severity or worse: critical, high, medium, low, info, none (default high)
-  --reports <list>       report files to write: html,md,json (default html,md)
+  --reports <list>       report files to write: html,md,json,sarif,junit (default html,md)
   --out <dir>            where runs are written: <dir>/runs/<time>/ (default ./.webtrax)
   --stdout <format>      what to print: console, md, json (default console)
   --quiet                print nothing; use the exit code and report files
@@ -113,7 +113,7 @@ async function check(args: string[], io: Io): Promise<number> {
   const { config } = loadConfig(io.cwd, values.config)
   const failOn: FailOn = values['fail-on'] ? parseFailOn(values['fail-on']) : (config.fail_on ?? 'high')
   const reports = values.reports ? values.reports.split(',').map((r) => r.trim()).filter(Boolean) : (config.reports ?? ['html', 'md'])
-  for (const r of reports) if (!['html', 'md', 'json'].includes(r)) throw new ConfigError('--reports takes html, md and json')
+  for (const r of reports) if (!['html', 'md', 'json', 'sarif', 'junit'].includes(r)) throw new ConfigError('--reports takes html, md, json, sarif and junit')
   const ignore = new Set(values.ignore ? values.ignore.split(',').map((r) => r.trim()).filter(Boolean) : (config.ignore ?? []))
   for (const id of ignore) if (!RULES.some((r) => r.id === id)) throw new ConfigError(`--ignore: unknown rule ${id} (see webtrax explain or the rules reference)`)
   const stdoutFormat = values.stdout ?? 'console'
@@ -152,6 +152,8 @@ async function check(args: string[], io: Io): Promise<number> {
   if (reports.includes('html')) write('report.html', renderHtml(report))
   if (reports.includes('md')) write('report.md', renderMarkdown(report))
   if (reports.includes('json')) write('report.json', renderJson(report))
+  if (reports.includes('sarif')) write('report.sarif', renderSarif(report))
+  if (reports.includes('junit')) write('report.junit.xml', renderJunit(report))
   const shown = written.find((f) => f.endsWith('.html')) ?? local.file
 
   if (!values.quiet) {

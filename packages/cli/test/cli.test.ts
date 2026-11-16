@@ -72,9 +72,10 @@ describe('webtrax check', () => {
 
   it('writes runs under --out', async () => {
     fresh()
-    await main(['check', `${fixture.origin}/`, ...FAST, '--out', 'reports', '--quiet', '--reports', 'json'], io().io)
+    await main(['check', `${fixture.origin}/`, ...FAST, '--out', 'reports', '--quiet', '--reports', 'json,sarif,junit'], io().io)
     const [run] = readdirSync(join(cwd, 'reports', 'runs'))
-    expect(existsSync(join(cwd, 'reports', 'runs', run!, 'report.json'))).toBe(true)
+    for (const f of ['report.json', 'report.sarif', 'report.junit.xml']) expect(existsSync(join(cwd, 'reports', 'runs', run!, f)), f).toBe(true)
+    expect(JSON.parse(readFileSync(join(cwd, 'reports', 'runs', run!, 'report.sarif'), 'utf8')).version).toBe('2.1.0')
   })
 
   it('exits 3 when the site cannot be crawled', async () => {

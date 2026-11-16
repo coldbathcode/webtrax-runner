@@ -34,7 +34,7 @@ const Config = z.strictObject({
   }).optional(),
   suites: z.partialRecord(z.enum(AVAILABLE_SUITES), z.strictObject({ enabled: z.boolean() })).optional(),
   fail_on: z.enum([...SEVERITIES, 'none']).optional(),
-  reports: z.array(z.enum(['html', 'md', 'json'])).optional(),
+  reports: z.array(z.enum(['html', 'md', 'json', 'sarif', 'junit'])).optional(),
   /** Rule ids to leave out of reports and the exit code (they stay in run.ndjson). */
   ignore: z.array(z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/)).optional(),
 })
@@ -167,7 +167,7 @@ suites:
 # Exit with code 1 when a finding is at least this severe (critical, high, medium, low, info, none).
 fail_on: high
 
-# Report files written to the run directory (.webtrax/runs/<time>/).
+# Report files written to the run directory (.webtrax/runs/<time>/): html, md, json, sarif, junit.
 reports: [html, md]
 
 # Rule ids to leave out of reports and the exit code, e.g. [seo.noindex] on a staging site.
