@@ -12,7 +12,7 @@ jobs:
       security-events: write
     steps:
       - id: webtrax
-        uses: coldbathcode/webtrax-runner/action@v1
+        uses: coldbathcode/webtrax-runner/action@v0
         with:
           url: ${{ github.event.deployment_status.environment_url }}
           fail-on: high

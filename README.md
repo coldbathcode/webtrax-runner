@@ -10,7 +10,7 @@ npx @webtrax/cli check https://your-site.example --browser  # + accessibility an
 claude mcp add webtrax -- npx -y @webtrax/cli mcp           # local MCP server for coding agents
 ```
 
-GitHub Action: `uses: coldbathcode/webtrax-runner/action@v1` with `url:` (see [action/README.md](action/README.md)). Cursor (`.cursor/mcp.json`): `{ "mcpServers": { "webtrax": { "command": "npx", "args": ["-y", "@webtrax/cli", "mcp"] } } }`. The MCP server checks only local targets (localhost, `*.local`, private IPs) unless started with `--allow-public`.
+GitHub Action: `uses: coldbathcode/webtrax-runner/action@v0` with `url:` (see [action/README.md](action/README.md)). Cursor (`.cursor/mcp.json`): `{ "mcpServers": { "webtrax": { "command": "npx", "args": ["-y", "@webtrax/cli", "mcp"] } } }`. The MCP server checks only local targets (localhost, `*.local`, private IPs) unless started with `--allow-public`.
 
 **Docs:** [docs.webtrax.dev](https://docs.webtrax.dev/) (getting started, CLI, MCP, CI, every rule).
 
