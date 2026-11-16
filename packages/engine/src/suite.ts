@@ -13,6 +13,7 @@
  * returning async iterables (simpler to write and to test), and `plan()` /
  * `onBrowserPage` arrive with the browser stage (C05.10).
  */
+import type { Page } from 'playwright-core'
 import type { Capability, FetchError, JobSpec, RuleMeta, Severity, SuiteId } from '@webtrax/protocol'
 import type { CrawledPage, SiteState } from './engine'
 import type { Outcome } from './requester'
@@ -41,8 +42,20 @@ export interface SuiteCtx {
   readonly startUrl: string
   readonly requestedStartUrl: string
   emit(finding: FindingInput): Promise<void>
+  /** Records a metric (performance timings, sizes) for a URL. */
+  metric(name: string, value: number, unit: string, url: string): Promise<void>
   /** One guarded GET that does not follow redirects (for checks such as HTTP → HTTPS). */
   request(url: string): Promise<Outcome>
+}
+
+/** A page loaded once in Chromium (through the egress proxy), shared by every browser suite. */
+export interface BrowserPage {
+  url: string
+  /** HTTP status of the navigation, or null if it failed. */
+  status: number | null
+  /** Time from navigation start to the load event, as the runner measured it. */
+  loadMs: number
+  page: Page
 }
 
 export interface CheckSuite {
@@ -53,6 +66,12 @@ export interface CheckSuite {
   rules: RuleMeta[]
   onPage?(ctx: SuiteCtx, page: CrawledPage): void | Promise<void>
   onSite?(ctx: SuiteCtx, site: SiteState): void | Promise<void>
+  /** Browser suites (`requires: ['browser']`): called once per selected page after the crawl. */
+  onBrowserPage?(ctx: SuiteCtx, page: BrowserPage): void | Promise<void>
+  /** Which crawled pages get the browser stage; default: the shallowest 200 HTML pages, up to `sample`. */
+  selectPages?(site: SiteState, config: Record<string, unknown>): string[]
+  /** Pages for the default selection when the config sets no `sample`. */
+  defaultSample?: number
 }
 
 /** Link outcomes that count as broken, by rule. Rate limiting and robots skips never do (COR-12). */

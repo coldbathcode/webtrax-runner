@@ -5,7 +5,7 @@
  * technical SEO suite (canonicals, hreflang, structured data …) is C06.3.
  */
 import type { CheckSuite } from '@webtrax/engine'
-import type { RuleMeta } from '@webtrax/protocol'
+import { normaliseUrl, type RuleMeta } from '@webtrax/protocol'
 
 const rule = (id: string, severity: RuleMeta['severity'], title: string, why: string, fix: string): RuleMeta => ({
   id, suite: 'seo', title, version: 1, severity, why, fix, docs_slug: id.replace(/[._]/g, '-'), tags: [],
@@ -47,12 +47,15 @@ export const seoSuite: CheckSuite = {
   },
 
   async onSite(ctx, site) {
+    // Pages that name the same canonical URL are one page (/waitlist and /waitlist?v=b), not duplicates.
+    const canonicalOf = new Map(site.edges.filter((e) => e.kind === 'canonical').map((e) => [e.from, e.to]))
     const byTitle = new Map<string, string[]>()
     for (const page of site.pages.values()) {
       if (page.status !== 200 || !page.title) continue
       const key = page.title.trim().toLowerCase()
       const urls = byTitle.get(key) ?? []
-      const final = page.final_url
+      const own = normaliseUrl(page.final_url) ?? page.final_url
+      const final = canonicalOf.get(own) ?? own
       if (!urls.includes(final)) urls.push(final)
       byTitle.set(key, urls)
     }

@@ -28,7 +28,9 @@ import { createRequester, type Outcome, type Requester } from './requester'
 import { ALLOW_ALL, parseRobots, type Robots } from './robots'
 import { parseSitemap } from './sitemap'
 import { MemorySink, type Sink } from './sink'
-import type { CheckSuite, FindingInput, SuiteCtx } from './suite'
+import type { BrowserPage, CheckSuite, FindingInput, SuiteCtx } from './suite'
+import { startEgressProxy, type Refusal } from '@webtrax/net-proxy'
+import { launchBrowser } from './browser'
 import { HostThrottle, realClock, sharedThrottle, type ThrottleClock } from './throttle'
 
 export interface EngineOptions {
@@ -88,6 +90,8 @@ export interface SiteState {
   links: Map<string, LinkOutcome>
   edges: LinkEdge[]
   sitemapUrls: string[]
+  /** Set when the browser stage ran: pages loaded, and requests the egress proxy refused. */
+  browser?: { pages: number; refused: Refusal[] }
 }
 
 export interface CrawlDeps {
@@ -105,7 +109,7 @@ export interface CrawlDeps {
   options?: Partial<EngineOptions>
 }
 
-export interface SuiteError { suite: string; hook: 'onPage' | 'onSite'; url?: string; message: string }
+export interface SuiteError { suite: string; hook: 'onPage' | 'onSite' | 'onBrowserPage' | 'browser'; url?: string; message: string }
 
 export interface CrawlResult { summary: SummaryRecord; site: SiteState | null; findings: FindingRecord[]; suiteErrors: SuiteError[] }
 
@@ -296,9 +300,10 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const ctxFor = (suite: CheckSuite): SuiteCtx => ({
     spec, config: spec.suites[suite.id]?.config ?? {}, origin, startUrl, requestedStartUrl: spec.target.start_url, emit: emitFor(suite),
     request: (url) => requester.page(url, undefined, () => true),
+    metric: async (name, value, unit, url) => write({ type: 'metric', name, value, unit, url: normaliseUrl(url) ?? url, device: 'desktop' }),
   })
   const contexts = new Map(active.map((suite) => [suite, ctxFor(suite)]))
-  const runHook = async (suite: CheckSuite, hook: 'onPage' | 'onSite', call: () => void | Promise<void>, url?: string) => {
+  const runHook = async (suite: CheckSuite, hook: 'onPage' | 'onSite' | 'onBrowserPage', call: () => void | Promise<void>, url?: string) => {
     try {
       await call()
     } catch (error) {
@@ -445,7 +450,56 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   await Promise.all(Array.from({ length: spec.limits.concurrency }, worker))
   await Promise.all(linkChecks.values())
 
+  // Browser stage (C05.10): one Chromium load per selected page, through the egress proxy.
+  const browserSuites = active.filter((s) => s.requires.includes('browser') && s.onBrowserPage)
+  if (browserSuites.length && !stopReason) await browserStage(browserSuites)
+
   for (const suite of active) if (suite.onSite) await runHook(suite, 'onSite', () => suite.onSite!(contexts.get(suite)!, site))
+
+  async function browserStage(suites: CheckSuite[]) {
+    const pages = [...site.pages.values()]
+      .filter((p) => p.status === 200 && p.title !== undefined && isInternal(p.final_url))
+      .sort((a, b) => a.depth - b.depth || (a.final_url < b.final_url ? -1 : 1))
+      .map((p) => normaliseUrl(p.final_url) ?? p.final_url)
+    const wanted = new Map<string, CheckSuite[]>()
+    for (const suite of suites) {
+      const config = spec.suites[suite.id]?.config ?? {}
+      const sample = typeof config.sample === 'number' ? config.sample : (suite.defaultSample ?? 10)
+      const urls = suite.selectPages ? suite.selectPages(site, config) : [...new Set(pages)].slice(0, sample)
+      for (const url of urls) wanted.set(url, [...(wanted.get(url) ?? []), suite])
+    }
+    const proxy = await startEgressProxy({ policy: { allowPrivate: spec.scope.allow_private } })
+    let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined
+    try {
+      browser = await launchBrowser(proxy.url)
+    } catch (error) {
+      for (const suite of suites) suiteErrors.push({ suite: suite.id, hook: 'browser', message: (error as Error).message })
+      await proxy.close()
+      return
+    }
+    let loaded = 0
+    try {
+      for (const [url, forSuites] of wanted) {
+        if (stopReason) break
+        await (deps.throttle ?? sharedThrottle).wait(new URL(url).host, spec.limits.per_host_rps, internal.signal)
+        const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false, userAgent, viewport: { width: 1350, height: 940 } })
+        try {
+          const page = await context.newPage()
+          const started = clock.now()
+          const response = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).catch(() => null)
+          const bp: BrowserPage = { url, status: response?.status() ?? null, loadMs: clock.now() - started, page }
+          loaded += 1
+          for (const suite of forSuites) await runHook(suite, 'onBrowserPage', () => suite.onBrowserPage!(contexts.get(suite)!, bp), url)
+        } finally {
+          await context.close().catch(() => {})
+        }
+      }
+    } finally {
+      await browser.close().catch(() => {})
+      site.browser = { pages: loaded, refused: [...proxy.refused] }
+      await proxy.close()
+    }
+  }
 
   // Counted per distinct link target (a link or a sitemap entry), not per page that links to it.
   const targets = [...new Set(site.edges.map((e) => e.to))].map((url) => site.links.get(url)).filter((o): o is LinkOutcome => !!o)

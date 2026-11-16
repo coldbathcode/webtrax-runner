@@ -8,7 +8,7 @@ function setup() {
   const emitted: FindingInput[] = []
   const ctx: SuiteCtx = {
     spec: JobSpec.parse({ spec_version: 1, job_id: 'x', target: { start_url: `${O}/` } }), config: {}, origin: O, startUrl: `${O}/`, requestedStartUrl: `${O}/`,
-    emit: async (f) => { emitted.push(f) }, request: async () => { throw new Error('no fetching') },
+    emit: async (f) => { emitted.push(f) }, metric: async () => {}, request: async () => { throw new Error('no fetching') },
   }
   return { ctx, emitted, ids: () => emitted.map((f) => f.rule_id).sort() }
 }
@@ -51,5 +51,14 @@ describe('seo suite', () => {
     const pages = new Map([rec('/a', 'Home'), rec('/b', 'home '), rec('/c', 'Other'), rec('/d', 'Home', 404)].map((p) => [p.url, p]))
     await seoSuite.onSite!(s.ctx, { origin: O, startUrl: `${O}/`, requestedStartUrl: `${O}/`, robots: ALLOW_ALL, pages, links: new Map(), edges: [], sitemapUrls: [] })
     expect(s.emitted.map((f) => [f.rule_id, f.url, f.evidence_key])).toEqual([['seo.title.duplicate', `${O}/a`, 'home'], ['seo.title.duplicate', `${O}/b`, 'home']])
+  })
+
+  it('treats pages with the same canonical URL as one page (found on webtrax.dev: /waitlist?v=b)', async () => {
+    const s = setup()
+    const rec = (path: string, title: string): PageRecord => ({ type: 'page', url: O + path, final_url: O + path, status: 200, depth: 0, redirect_chain: [], title })
+    const pages = new Map([rec('/waitlist', 'Join'), rec('/waitlist?v=b', 'Join'), rec('/waitlist?v=a', 'Join')].map((p) => [p.url, p]))
+    const edges = ['/waitlist', '/waitlist?v=b', '/waitlist?v=a'].map((p) => ({ from: O + p, to: `${O}/waitlist`, text: '', kind: 'canonical' as const }))
+    await seoSuite.onSite!(s.ctx, { origin: O, startUrl: `${O}/`, requestedStartUrl: `${O}/`, robots: ALLOW_ALL, pages, links: new Map(), edges, sitemapUrls: [] })
+    expect(s.emitted).toEqual([])
   })
 })

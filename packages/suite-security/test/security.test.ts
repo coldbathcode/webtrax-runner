@@ -13,7 +13,7 @@ function setup(start: string, httpAnswer: Partial<Outcome> = { status: 301, fina
   const requested: string[] = []
   const ctx: SuiteCtx = {
     spec: JobSpec.parse({ spec_version: 1, job_id: 'x', target: { start_url: start } }), config: {}, origin: new URL(start).origin, startUrl: start, requestedStartUrl: start,
-    emit: async (f) => { emitted.push(f) },
+    emit: async (f) => { emitted.push(f) }, metric: async () => {},
     request: async (url) => { requested.push(url); return { url, finalUrl: url, status: null, chain: [], timing: { ttfb: 0, total: 0 }, requests: 1, ...httpAnswer } },
   }
   const page = (url: string, headers: Record<string, string>, html = '<p>x</p>'): CrawledPage => ({

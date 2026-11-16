@@ -18,8 +18,10 @@
   },
   "dependencies": {
     "@webtrax/net-guard": "workspace:*",
+    "@webtrax/net-proxy": "workspace:*",
     "@webtrax/protocol": "workspace:*",
     "cheerio": "^1.2.0",
+    "playwright-core": "1.57.0",
     "robots-parser": "^3.0.1"
   },
   "devDependencies": {

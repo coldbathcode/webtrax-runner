@@ -2,12 +2,14 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseNdjson, type RuleMeta, type RunLine } from '@webtrax/protocol'
+import { a11ySuite } from '@webtrax/suite-a11y'
 import { linksSuite } from '@webtrax/suite-links'
+import { performanceSuite } from '@webtrax/suite-performance'
 import { securitySuite } from '@webtrax/suite-security'
 import { seoSuite } from '@webtrax/suite-seo'
 import { ConfigError } from './config'
 
-export const SUITES = [linksSuite, securitySuite, seoSuite]
+export const SUITES = [linksSuite, securitySuite, seoSuite, a11ySuite, performanceSuite]
 export const RULES: RuleMeta[] = SUITES.flatMap((s) => s.rules)
 
 export const runsDir = (root: string) => join(root, '.webtrax', 'runs')

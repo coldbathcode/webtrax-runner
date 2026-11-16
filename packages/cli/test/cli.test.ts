@@ -70,6 +70,15 @@ describe('webtrax check', () => {
     expect(await main(['check', `${fixture.origin}/`, '--ignore', 'links.nope'], io().io)).toBe(EXIT.usage)
   })
 
+  it('runs the browser suites with --browser (Chromium through the egress proxy)', async () => {
+    fresh()
+    const t = io()
+    await main(['check', `${fixture.origin}/`, ...FAST, '--browser', '--max-pages', '3', '--stdout', 'json', '--fail-on', 'none'], t.io)
+    const json = JSON.parse(t.out())
+    expect(json.summary.suites.map((s: { id: string }) => s.id)).toEqual(['links', 'security', 'seo', 'a11y', 'performance'])
+    expect(json.findings.some((f: { rule_id: string }) => f.rule_id === 'a11y.html_has_lang')).toBe(true)
+  }, 90_000)
+
   it('writes runs under --out', async () => {
     fresh()
     await main(['check', `${fixture.origin}/`, ...FAST, '--out', 'reports', '--quiet', '--reports', 'json,sarif,junit'], io().io)

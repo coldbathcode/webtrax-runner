@@ -11,7 +11,10 @@ import { z } from 'zod'
 import { SEVERITIES, type JobSpecInput, type Severity, type SuiteId } from '@webtrax/protocol'
 
 export const CONFIG_FILE = 'webtrax.yml'
-export const AVAILABLE_SUITES = ['links', 'security', 'seo'] as const satisfies readonly SuiteId[]
+export const AVAILABLE_SUITES = ['links', 'security', 'seo', 'a11y', 'performance'] as const satisfies readonly SuiteId[]
+/** On unless turned off. The browser suites (a11y, performance) need Chromium, so they are opt-in. */
+export const DEFAULT_SUITES: readonly AvailableSuite[] = ['links', 'security', 'seo']
+export const BROWSER_SUITES: readonly AvailableSuite[] = ['a11y', 'performance']
 export type AvailableSuite = (typeof AVAILABLE_SUITES)[number]
 export type FailOn = Severity | 'none'
 
@@ -82,6 +85,8 @@ export interface CheckFlags {
   rps?: number
   timeBudget?: number
   suites?: AvailableSuite[]
+  /** Add the browser suites (a11y, performance) to whatever else runs. */
+  browser?: boolean
   allowPrivate?: boolean
   ignoreRobots?: boolean
   noExternal?: boolean
@@ -104,7 +109,8 @@ export function buildSpec(config: Config, flags: CheckFlags, jobId: string): Job
   const target = flags.url ?? config.target
   if (!target) throw new ConfigError('no URL to check: pass one (webtrax check https://example.com) or set target in webtrax.yml')
   const startUrl = normaliseTarget(target)
-  const suites = flags.suites ?? AVAILABLE_SUITES.filter((s) => config.suites?.[s]?.enabled ?? true)
+  const base = flags.suites ?? AVAILABLE_SUITES.filter((s) => config.suites?.[s]?.enabled ?? DEFAULT_SUITES.includes(s))
+  const suites = flags.browser ? [...new Set([...base, ...BROWSER_SUITES])] : base
   const limits = config.limits ?? {}
   return {
     spec_version: 1,
@@ -163,6 +169,9 @@ suites:
   links: { enabled: true }
   security: { enabled: true }
   seo: { enabled: true }
+  # Need Chromium (npx playwright@1.57.0 install chromium, or Google Chrome):
+  a11y: { enabled: false }
+  performance: { enabled: false }
 
 # Exit with code 1 when a finding is at least this severe (critical, high, medium, low, info, none).
 fail_on: high

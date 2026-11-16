@@ -48,7 +48,8 @@ Options for check
   --config <file>        config file (default: ./webtrax.yml if present)
   --max-pages <n>        pages to crawl (default 300)
   --max-depth <n>        link depth from the start page (default 10)
-  --suites <list>        links,security,seo (default: all)
+  --suites <list>        links,security,seo,a11y,performance (default: links,security,seo)
+  --browser              also run the browser suites (a11y, performance); needs Chromium or Chrome
   --fail-on <severity>   exit 1 at this severity or worse: critical, high, medium, low, info, none (default high)
   --reports <list>       report files to write: html,md,json,sarif,junit (default html,md)
   --out <dir>            where runs are written: <dir>/runs/<time>/ (default ./.webtrax)
@@ -106,7 +107,7 @@ async function check(args: string[], io: Io): Promise<number> {
       config: { type: 'string' }, 'max-pages': { type: 'string' }, 'max-depth': { type: 'string' }, suites: { type: 'string' },
       'fail-on': { type: 'string' }, reports: { type: 'string' }, out: { type: 'string' }, stdout: { type: 'string' }, quiet: { type: 'boolean' },
       'allow-private': { type: 'boolean' }, 'ignore-robots': { type: 'boolean' }, 'no-external': { type: 'boolean' }, rps: { type: 'string' },
-      concurrency: { type: 'string' }, 'time-budget': { type: 'string' }, ignore: { type: 'string' },
+      concurrency: { type: 'string' }, 'time-budget': { type: 'string' }, ignore: { type: 'string' }, browser: { type: 'boolean' },
     },
   })
   if (positionals.length > 1) throw new ConfigError('check takes one URL')
@@ -129,6 +130,7 @@ async function check(args: string[], io: Io): Promise<number> {
     ...(values.rps ? { rps: int('rps', values.rps)! } : {}),
     ...(values['time-budget'] ? { timeBudget: int('time-budget', values['time-budget'])! } : {}),
     ...(values.suites ? { suites: parseSuites(values.suites) } : {}),
+    browser: values.browser ?? false,
     allowPrivate: values['allow-private'] ?? false,
     ignoreRobots: values['ignore-robots'] ?? false,
     noExternal: values['no-external'] ?? false,
@@ -240,6 +242,14 @@ async function doctor(io: Io): Promise<number> {
     results.push({ ok: false, what: 'HTTPS reaches webtrax.dev', fix: `Check proxies and firewalls (${(e as Error).message}).` })
   } finally {
     await fetch.close()
+  }
+  try {
+    const { chromium } = await import('playwright-core')
+    const browser = await chromium.launch().catch(() => chromium.launch({ channel: 'chrome' }))
+    await browser.close()
+    results.push({ ok: true, what: 'Chromium or Chrome for --browser (a11y, performance)' })
+  } catch {
+    results.push({ ok: false, what: 'Chromium or Chrome for --browser (a11y, performance)', fix: 'Optional. Install with "npx playwright@1.57.0 install chromium", or install Google Chrome.' })
   }
   try {
     mkdirSync(join(io.cwd, '.webtrax'), { recursive: true })
