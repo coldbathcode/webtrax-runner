@@ -1,0 +1,10 @@
+Webtrax https://shop.example/
+partial (time budget) · 1 page · 12 links checked · 1 min 6 s
+1 high, 1 medium, 1 low, 1 info
+
+HIGH     Broken internal link: https://shop.example/old (on 2 pages)  [aaaaaaaaaa]
+MEDIUM   Content-Security-Policy missing: https://shop.example/  [bbbbbbbbbb]
+LOW      Page does not declare its language: https://shop.example/  [cccccccccc]
+INFO     A rule the reporter has no metadata for: site-wide  [dddddddddd]
+
+Report: .webtrax/runs/x/report.html

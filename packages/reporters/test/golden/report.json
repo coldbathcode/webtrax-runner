@@ -1,0 +1,135 @@
+{
+  "target": "https://shop.example/",
+  "job_id": "sample",
+  "runner": {
+    "name": "@webtrax/cli",
+    "version": "0.1.0"
+  },
+  "summary": {
+    "type": "summary",
+    "job_id": "sample",
+    "status": "partial",
+    "stop_reason": "time_budget",
+    "started_at": "2026-11-16T10:00:00.000Z",
+    "finished_at": "2026-11-16T10:01:05.500Z",
+    "pages": {
+      "crawled": 1,
+      "failed": 2
+    },
+    "links": {
+      "checked": 12,
+      "broken": 1
+    },
+    "findings": {
+      "critical": 0,
+      "high": 1,
+      "medium": 1,
+      "low": 1,
+      "info": 1
+    },
+    "suites": [
+      {
+        "id": "links",
+        "version": "1.0.0",
+        "requires": [
+          "http"
+        ]
+      },
+      {
+        "id": "security",
+        "version": "1.0.0",
+        "requires": [
+          "http"
+        ]
+      },
+      {
+        "id": "seo",
+        "version": "1.0.0",
+        "requires": [
+          "http"
+        ]
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "aaaaaaaaaa",
+      "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "rule_id": "links.broken.internal",
+      "severity": "high",
+      "title": "Broken internal link",
+      "url": "https://shop.example/old",
+      "sources": [
+        "https://shop.example/",
+        "https://shop.example/blog"
+      ],
+      "evidence": {
+        "status": 404,
+        "link_text": "Old <b>offer</b>"
+      },
+      "why": "Visitors reach an error page.",
+      "fix": "Point the link at the page that exists now.",
+      "docs": "https://webtrax.dev/docs/rules/links-broken-internal"
+    },
+    {
+      "id": "bbbbbbbbbb",
+      "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "rule_id": "security.header.csp_missing",
+      "severity": "medium",
+      "title": "Content-Security-Policy missing",
+      "url": "https://shop.example/",
+      "sources": [],
+      "evidence": {},
+      "why": "A CSP limits injected scripts.",
+      "fix": "Add a Content-Security-Policy.",
+      "docs": "https://webtrax.dev/docs/rules/security-header-csp-missing"
+    },
+    {
+      "id": "cccccccccc",
+      "fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rule_id": "seo.lang.missing",
+      "severity": "low",
+      "title": "Page does not declare its language",
+      "url": "https://shop.example/",
+      "sources": [],
+      "evidence": {},
+      "why": "Screen readers need it.",
+      "fix": "Add <html lang=\"en\">.",
+      "docs": "https://webtrax.dev/docs/rules/seo-lang-missing"
+    },
+    {
+      "id": "dddddddddd",
+      "fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "rule_id": "seo.unknown_rule",
+      "severity": "info",
+      "title": "A rule the reporter has no metadata for",
+      "url": null,
+      "sources": [],
+      "evidence": {
+        "examples": [
+          "javascript:alert(1)",
+          "https://x.example/"
+        ]
+      }
+    }
+  ],
+  "pages": [
+    {
+      "url": "https://shop.example/",
+      "final_url": "https://shop.example/",
+      "status": 200,
+      "title": "Shop <home>"
+    },
+    {
+      "url": "https://shop.example/old",
+      "final_url": "https://shop.example/old",
+      "status": 404
+    },
+    {
+      "url": "https://shop.example/down",
+      "final_url": "https://shop.example/down",
+      "status": null,
+      "error": "timeout"
+    }
+  ]
+}
