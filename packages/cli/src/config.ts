@@ -35,6 +35,8 @@ const Config = z.strictObject({
   suites: z.partialRecord(z.enum(AVAILABLE_SUITES), z.strictObject({ enabled: z.boolean() })).optional(),
   fail_on: z.enum([...SEVERITIES, 'none']).optional(),
   reports: z.array(z.enum(['html', 'md', 'json'])).optional(),
+  /** Rule ids to leave out of reports and the exit code (they stay in run.ndjson). */
+  ignore: z.array(z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/)).optional(),
 })
 export type Config = z.output<typeof Config>
 
@@ -140,7 +142,7 @@ export function parseSuites(value: string): AvailableSuite[] {
 }
 
 export function configTemplate(target: string): string {
-  return `# Webtrax configuration: https://webtrax.dev/docs/cli
+  return `# Webtrax configuration: https://docs.webtrax.dev/configuration/
 version: 1
 target: ${target}
 
@@ -167,5 +169,8 @@ fail_on: high
 
 # Report files written to the run directory (.webtrax/runs/<time>/).
 reports: [html, md]
+
+# Rule ids to leave out of reports and the exit code, e.g. [seo.noindex] on a staging site.
+ignore: []
 `
 }

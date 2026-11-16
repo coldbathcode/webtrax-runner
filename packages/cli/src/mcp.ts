@@ -286,7 +286,7 @@ export function createMcpServer(o: McpOptions): McpServer {
   }, async ({ id }) => {
     const rule = RULES.find((r) => r.id === id) ?? findFinding(id)?.finding.rule
     if (!rule) return fail(`no rule or finding ${id}`)
-    return text({ rule_id: rule.id, title: rule.title, severity: rule.severity, why: rule.why, fix: rule.fix, docs: `https://webtrax.dev/docs/rules/${rule.docs_slug}` })
+    return text({ rule_id: rule.id, title: rule.title, severity: rule.severity, why: rule.why, fix: rule.fix, docs: `https://docs.webtrax.dev/rules/${rule.docs_slug}/` })
   })
 
   server.registerResource('latest-report', 'webtrax://local/runs/latest/report.md', { title: 'Latest Webtrax report', mimeType: 'text/markdown' }, async (uri) => {

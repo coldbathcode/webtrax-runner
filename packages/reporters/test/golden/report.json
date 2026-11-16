@@ -69,7 +69,7 @@
       },
       "why": "Visitors reach an error page.",
       "fix": "Point the link at the page that exists now.",
-      "docs": "https://webtrax.dev/docs/rules/links-broken-internal"
+      "docs": "https://docs.webtrax.dev/rules/links-broken-internal/"
     },
     {
       "id": "bbbbbbbbbb",
@@ -82,7 +82,7 @@
       "evidence": {},
       "why": "A CSP limits injected scripts.",
       "fix": "Add a Content-Security-Policy.",
-      "docs": "https://webtrax.dev/docs/rules/security-header-csp-missing"
+      "docs": "https://docs.webtrax.dev/rules/security-header-csp-missing/"
     },
     {
       "id": "cccccccccc",
@@ -95,7 +95,7 @@
       "evidence": {},
       "why": "Screen readers need it.",
       "fix": "Add <html lang=\"en\">.",
-      "docs": "https://webtrax.dev/docs/rules/seo-lang-missing"
+      "docs": "https://docs.webtrax.dev/rules/seo-lang-missing/"
     },
     {
       "id": "dddddddddd",

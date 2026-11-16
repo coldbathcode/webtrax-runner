@@ -34,7 +34,7 @@ export interface Io {
   signal?: AbortSignal
 }
 
-const HELP = `webtrax ${VERSION}: check a website for broken links, redirects, security headers and SEO basics
+export const HELP = `webtrax ${VERSION}: check a website for broken links, redirects, security headers and SEO basics
 
 Usage
   webtrax check [url] [options]   crawl a site and report what is broken
@@ -60,6 +60,7 @@ Options for check
   --rps <n>              requests per second per host (default 2)
   --concurrency <n>      parallel requests (default 4)
   --time-budget <s>      stop after this many seconds and report what was found (default 600)
+  --ignore <rules>       rule ids to leave out of reports and the exit code, e.g. seo.noindex
 
 Exit codes: 0 ok, 1 findings at or above --fail-on, 2 usage or config error, 3 site unreachable.
 The crawler identifies itself as ${BOT_USER_AGENT}.
@@ -105,7 +106,7 @@ async function check(args: string[], io: Io): Promise<number> {
       config: { type: 'string' }, 'max-pages': { type: 'string' }, 'max-depth': { type: 'string' }, suites: { type: 'string' },
       'fail-on': { type: 'string' }, reports: { type: 'string' }, out: { type: 'string' }, stdout: { type: 'string' }, quiet: { type: 'boolean' },
       'allow-private': { type: 'boolean' }, 'ignore-robots': { type: 'boolean' }, 'no-external': { type: 'boolean' }, rps: { type: 'string' },
-      concurrency: { type: 'string' }, 'time-budget': { type: 'string' },
+      concurrency: { type: 'string' }, 'time-budget': { type: 'string' }, ignore: { type: 'string' },
     },
   })
   if (positionals.length > 1) throw new ConfigError('check takes one URL')
@@ -113,6 +114,8 @@ async function check(args: string[], io: Io): Promise<number> {
   const failOn: FailOn = values['fail-on'] ? parseFailOn(values['fail-on']) : (config.fail_on ?? 'high')
   const reports = values.reports ? values.reports.split(',').map((r) => r.trim()).filter(Boolean) : (config.reports ?? ['html', 'md'])
   for (const r of reports) if (!['html', 'md', 'json'].includes(r)) throw new ConfigError('--reports takes html, md and json')
+  const ignore = new Set(values.ignore ? values.ignore.split(',').map((r) => r.trim()).filter(Boolean) : (config.ignore ?? []))
+  for (const id of ignore) if (!RULES.some((r) => r.id === id)) throw new ConfigError(`--ignore: unknown rule ${id} (see webtrax explain or the rules reference)`)
   const stdoutFormat = values.stdout ?? 'console'
   if (!['console', 'md', 'json'].includes(stdoutFormat)) throw new ConfigError('--stdout must be console, md or json')
 
@@ -142,7 +145,8 @@ async function check(args: string[], io: Io): Promise<number> {
     await local.close()
   }
 
-  const report = buildReport(memory.records, RULES)
+  // Ignored rules stay in run.ndjson but leave the reports and the exit code.
+  const report = buildReport(memory.records.filter((r) => r.type !== 'finding' || !ignore.has(r.rule_id)), RULES)
   const written: string[] = []
   const write = (name: string, text: string) => { const file = join(local.dir, name); writeFileSync(file, text); written.push(file) }
   if (reports.includes('html')) write('report.html', renderHtml(report))
@@ -211,7 +215,7 @@ function explain(args: string[], io: Io): number {
     context = `Finding ${finding.id}: ${finding.url ?? 'site-wide'}${finding.sources.length ? `, seen on ${finding.sources.slice(0, 3).join(', ')}` : ''}\n`
   }
   if (!rule) throw new ConfigError(`no guidance for ${key}`)
-  io.stdout(`${rule.title} (${rule.id}, ${rule.severity})\n${context}\nWhy it matters: ${rule.why}\nHow to fix: ${rule.fix}\nDocs: https://webtrax.dev/docs/rules/${rule.docs_slug}\n`)
+  io.stdout(`${rule.title} (${rule.id}, ${rule.severity})\n${context}\nWhy it matters: ${rule.why}\nHow to fix: ${rule.fix}\nDocs: https://docs.webtrax.dev/rules/${rule.docs_slug}/\n`)
   return EXIT.ok
 }
 

@@ -61,6 +61,15 @@ describe('webtrax check', () => {
     expect(quiet.out() + quiet.err()).toBe('')
   })
 
+  it('leaves --ignore rules out of the report and the exit code, and rejects unknown rules', async () => {
+    fresh()
+    const t = io()
+    const code = await main(['check', `${fixture.origin}/`, ...FAST, '--suites', 'links', '--ignore', 'links.broken.internal,links.broken.external', '--stdout', 'json'], t.io)
+    expect(code).toBe(EXIT.ok)
+    expect(JSON.parse(t.out()).findings.some((f: { rule_id: string }) => f.rule_id.startsWith('links.broken'))).toBe(false)
+    expect(await main(['check', `${fixture.origin}/`, '--ignore', 'links.nope'], io().io)).toBe(EXIT.usage)
+  })
+
   it('writes runs under --out', async () => {
     fresh()
     await main(['check', `${fixture.origin}/`, ...FAST, '--out', 'reports', '--quiet', '--reports', 'json'], io().io)

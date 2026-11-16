@@ -34,7 +34,13 @@ export const LINK_RULES = [
   rule('links.host_rate_limited', 'info', 'A host kept rate limiting the crawl', 'Some links on this host could not be checked; they are not reported as broken.', 'Allow WebtraxBot a higher rate (see webtrax.dev/bot), or lower the crawl rate.'),
 ] satisfies RuleMeta[]
 
-const SOFT_404 = /\b(404|page not found|not found|page doesn['’]t exist|page does not exist)\b/i
+/**
+ * An error page announces itself at the start of its title or main heading
+ * ("404", "Page not found", "Error 404 - Shop"). Matching anywhere would flag
+ * articles about errors ("How to fix a 404"), so only the start counts.
+ */
+const SOFT_404 = /^\s*(404\b|error\s*404\b|(oops[!,.]?\s*)?(page\s+)?not\s+found\b|(this\s+|the\s+)?page\s+((does\s+not|doesn['’]t)\s+exist|(cannot|can['’]t|could\s+not|couldn['’]t)\s+be\s+found)|sorry,?\s+(this|that|the)\s+page)/i
+const isErrorText = (text: string) => SOFT_404.test(text) || SOFT_404.test(text.split(/\s[|·–—-]\s/)[0] ?? '')
 const isRedirect = (s: number | null) => s !== null && s >= 300 && s < 400
 
 /** Follows a redirect the crawl stopped at a known page through that page's outcome. */
@@ -70,8 +76,7 @@ export const linksSuite: CheckSuite = {
   async onPage(ctx, page) {
     if (page.outcome.status !== 200) return
     const h1 = page.doc.$('h1').first().text().trim()
-    const text = `${page.doc.title ?? ''} ${h1}`
-    if (SOFT_404.test(text)) await ctx.emit({ rule_id: 'links.soft_404', url: page.url, evidence: { title: page.doc.title ?? '', h1: h1.slice(0, 200) } })
+    if (isErrorText(page.doc.title ?? '') || isErrorText(h1)) await ctx.emit({ rule_id: 'links.soft_404', url: page.url, evidence: { title: page.doc.title ?? '', h1: h1.slice(0, 200) } })
   },
 
   async onSite(ctx, site) {

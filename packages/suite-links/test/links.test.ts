@@ -106,6 +106,19 @@ describe('links suite: soft 404', () => {
     await linksSuite.onPage!(c, page('<title>Found our new office</title><h1>Welcome</h1>'))
     expect(rules()).toEqual([`links.soft_404 ${O}/p`, `links.soft_404 ${O}/p`])
   })
+
+  it('does not flag pages that are about errors (found on the Webtrax docs)', async () => {
+    const { c, rules } = ctx()
+    for (const html of [
+      '<title>Page says "not found" but returns 200 · Webtrax docs</title><h1>Page says "not found" but returns 200</h1>',
+      '<title>How to fix a 404 page</title><h1>How to fix a 404 page</h1>',
+      '<title>Page does not declare its language · Webtrax docs</title><h1>Page does not declare its language</h1>',
+      '<title>Not found what you need? Ask us</title><h1>Help</h1>'.replace('Not found what', 'Have not found what'),
+    ]) await linksSuite.onPage!(c, page(html))
+    expect(rules()).toEqual([])
+    for (const html of ['<title>Error 404 | Shop</title><h1>Oh no</h1>', '<title>Shop</title><h1>Sorry, this page has moved</h1>', '<title>Oops! Page not found – Blog</title>', '<title>Blog</title><h1>This page does not exist</h1>', "<title>Help</title><h1>The page can't be found</h1>"]) await linksSuite.onPage!(c, page(html))
+    expect(rules()).toHaveLength(5)
+  })
 })
 
 describe('rules', () => {
