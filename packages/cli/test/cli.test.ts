@@ -146,7 +146,9 @@ describe('the built executable', () => {
   beforeAll(() => { execFileSync('node', [join(import.meta.dirname, '..', 'scripts', 'build.mjs')]) }, 60_000)
 
   it('prints its version and help', () => {
-    expect(execFileSync('node', [bin, '--version'], { encoding: 'utf8' }).trim()).toBe(VERSION === '0.0.0-dev' ? '0.1.0-dev' : VERSION)
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')) as { version: string }
+    expect(execFileSync('node', [bin, '--version'], { encoding: 'utf8' }).trim()).toBe(pkg.version)
+    expect(VERSION).toBe('0.0.0-dev') // unbundled source has no version baked in
     expect(execFileSync('node', [bin, '--help'], { encoding: 'utf8' })).toContain('Exit codes')
   })
 

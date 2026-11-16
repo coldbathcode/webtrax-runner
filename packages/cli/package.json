@@ -1,8 +1,7 @@
 {
   "name": "@webtrax/cli",
-  "version": "0.1.0-dev",
-  "private": true,
-  "description": "Webtrax from the command line: check a website for broken links, redirect problems, security headers and SEO basics, with reports for people, CI and coding agents.",
+  "version": "0.1.0",
+  "description": "Check a website for broken links, redirects, security headers, SEO basics, accessibility and performance, from your terminal, your CI or your coding agent (MCP).",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
@@ -16,6 +15,31 @@
     "README.md",
     "LICENSE"
   ],
+  "keywords": [
+    "website",
+    "broken-links",
+    "link-checker",
+    "seo",
+    "accessibility",
+    "security-headers",
+    "performance",
+    "mcp",
+    "ci",
+    "webtrax"
+  ],
+  "homepage": "https://docs.webtrax.dev/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coldbathcode/webtrax-runner.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/coldbathcode/webtrax-runner/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "exports": {
     ".": "./src/main.ts"
   },

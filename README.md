@@ -2,16 +2,21 @@
 
 The open source engine behind [Webtrax](https://webtrax.dev), the agentic platform for website quality. It crawls a website once and checks it for broken links, redirect problems, missing security headers, SEO basics and, later, accessibility and performance. It writes reports for people, CI and coding agents, and runs as a local MCP server so a coding agent can check `localhost` before it commits.
 
-**Status: in development.** Nothing here is published to npm yet; the first public release is the alpha. From this repo: `pnpm --filter @webtrax/cli build`, then `node runner/packages/cli/dist/webtrax.js check https://your-site.example`.
+## Use it
 
 ```bash
-npx @webtrax/cli check https://your-site.example     # once published
-claude mcp add webtrax -- npx -y @webtrax/cli mcp    # local MCP server for Claude Code
+npx @webtrax/cli check https://your-site.example            # links, security, SEO
+npx @webtrax/cli check https://your-site.example --browser  # + accessibility and performance (needs Chromium)
+claude mcp add webtrax -- npx -y @webtrax/cli mcp           # local MCP server for coding agents
 ```
 
-GitHub Action: `uses: coldbathcode/webtrax-runner/action@v1` with `url:` (see [action/README.md](action/README.md)).
+GitHub Action: `uses: coldbathcode/webtrax-runner/action@v1` with `url:` (see [action/README.md](action/README.md)). Cursor (`.cursor/mcp.json`): `{ "mcpServers": { "webtrax": { "command": "npx", "args": ["-y", "@webtrax/cli", "mcp"] } } }`. The MCP server checks only local targets (localhost, `*.local`, private IPs) unless started with `--allow-public`.
 
-Cursor (`.cursor/mcp.json`): `{ "mcpServers": { "webtrax": { "command": "npx", "args": ["-y", "@webtrax/cli", "mcp"] } } }`. The MCP server checks only local targets (localhost, `*.local`, private IPs) unless started with `--allow-public`.
+**Docs:** [docs.webtrax.dev](https://docs.webtrax.dev/) (getting started, CLI, MCP, CI, every rule).
+
+## Develop
+
+Node.js 22.19+ and pnpm 10. `pnpm install`, then `pnpm run check` (typecheck, lint, tests; some tests need Chromium: `pnpm --filter @webtrax/net-proxy exec playwright-core install chromium`) and `pnpm run build`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 | Package | What | State |
 |---|---|---|
