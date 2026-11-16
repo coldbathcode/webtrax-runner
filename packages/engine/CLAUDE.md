@@ -1,0 +1,13 @@
+# @webtrax/engine
+
+The crawl engine (C05.3): v1's crawl loop rebuilt as the single-fetch pipeline (`plan/05-runner/pipeline-and-suite-contract.md`). `crawl(spec, deps)` takes a `JobSpec`, writes protocol records to a `Sink` (run → pages → summary) and returns the `SiteState` (pages, link outcomes, link edges, robots, sitemaps) for site-level suites.
+
+- **One fetch per URL.** Internal links are answered by the linked page's own crawl result; only links the crawl won't visit (external, past `max_pages`/`max_depth`, excluded) get a link check (HEAD, then GET on 403/404/405/501), once each. Page redirects are followed hop by hop and stop at a page the crawl already has. The 5xx/timeout retry-once (v1 semantics) is the only repeat. `test/golden.test.ts` asserts this against the server's request log.
+- **Requests** only through `src/requester.ts` (host throttle, timeout tied to the job signal, WebtraxBot headers, retries, Retry-After) on top of `@webtrax/net-guard`. Never call fetch directly.
+- **Politeness:** `HostThrottle` is shared per process (`sharedThrottle`): 1/rps or robots Crawl-delay (≤ 30 s), whichever is longer, halved per 429; slots reserved synchronously (COR-09). 429 and 503+Retry-After wait and retry, then end `rate_limited`, never broken (COR-12).
+- **robots.txt:** disallowed URLs are never requested (v1 HEAD-checked them); recorded as `robots_disallowed`.
+- **Start URL:** same-site redirects are adopted as the origin (COR-01); unreachable → `failed/start_url_unreachable`; another site → `failed/start_url_redirects_offsite`, without fetching it.
+- **Stopping:** caller abort → `partial/canceled` at once; time budget → stop the frontier, drain in-flight work up to `drainMs`, `partial/time_budget`.
+- **Order** is breadth first, then by URL (`Frontier`), so page order is identical across runs at concurrency 1.
+- **Suites** plug in at C05.4: `deps.onPage` gets each HTML page parsed once (`ParsedDoc`, cheerio); `SiteState` feeds `onSite`. Findings counts in the summary are zero until then.
+- The golden fixture is `runner/fixtures/site/server.mjs` (moved from v1, which still uses it). Behaviour and mutation-checked rules: see `test/`.

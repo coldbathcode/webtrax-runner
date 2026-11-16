@@ -941,9 +941,16 @@
           "type": "string",
           "enum": [
             "start_url_unreachable",
+            "start_url_redirects_offsite",
             "invalid_spec",
-            "time_budget_exceeded",
             "internal"
+          ]
+        },
+        "stop_reason": {
+          "type": "string",
+          "enum": [
+            "time_budget",
+            "canceled"
           ]
         },
         "started_at": {

@@ -13,8 +13,8 @@ claude mcp add webtrax -- npx -y @webtrax/cli mcp    # not published yet
 |---|---|---|
 | `@webtrax/protocol` | Job spec and run records (Zod + JSON Schema), fingerprints, the WebtraxBot identity | Built (C05.1) |
 | `@webtrax/net-guard` | Scope policy and guarded fetch: no private networks or cloud metadata, every redirect and DNS answer checked | Built (C05.2) |
-| `@webtrax/engine` | Executor and single-fetch crawl pipeline | Next (C05.3) |
-| `@webtrax/suite-links`, `@webtrax/suite-security` | Check suites | Planned (C05.4) |
+| `@webtrax/engine` | Crawl engine: one fetch per URL, robots.txt, sitemaps, per-host politeness, 429 handling, time budget and cancellation | Built (C05.3) |
+| `@webtrax/suite-links`, `@webtrax/suite-security` | Check suites | Next (C05.4) |
 | `@webtrax/reporters` | Console, JSON, Markdown, HTML | Planned (C05.5) |
 | `@webtrax/cli` | `webtrax check`, `webtrax mcp` | Planned (C05.6, C05.7) |
 

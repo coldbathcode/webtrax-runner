@@ -32,5 +32,9 @@ export const FETCH_ERRORS = [
 export type FetchError = (typeof FETCH_ERRORS)[number]
 
 /** Why a whole run failed. */
-export const RUN_ERRORS = ['start_url_unreachable', 'invalid_spec', 'time_budget_exceeded', 'internal'] as const
+export const RUN_ERRORS = ['start_url_unreachable', 'start_url_redirects_offsite', 'invalid_spec', 'internal'] as const
 export type RunError = (typeof RUN_ERRORS)[number]
+
+/** Why a run ended early with status `partial`. */
+export const STOP_REASONS = ['time_budget', 'canceled'] as const
+export type StopReason = (typeof STOP_REASONS)[number]

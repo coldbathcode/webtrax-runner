@@ -11,7 +11,7 @@
  * readers.
  */
 import { z } from 'zod'
-import { CAPABILITIES, FETCH_ERRORS, PROTOCOL_VERSION, RUN_ERRORS, RUN_STATUSES, SEVERITIES, SUITES } from './enums'
+import { CAPABILITIES, FETCH_ERRORS, PROTOCOL_VERSION, RUN_ERRORS, RUN_STATUSES, SEVERITIES, STOP_REASONS, SUITES } from './enums'
 
 /** Evidence is capped at 2 KB of JSON, as the database enforces (`finding_occurrences.evidence`). */
 export const MAX_EVIDENCE_BYTES = 2048
@@ -210,6 +210,8 @@ export const SummaryRecord = z.object({
   job_id: z.string(),
   status: z.enum(RUN_STATUSES),
   error: z.enum(RUN_ERRORS).optional(),
+  /** Set when `status` is `partial`. */
+  stop_reason: z.enum(STOP_REASONS).optional(),
   started_at: IsoDateTime,
   finished_at: IsoDateTime,
   pages: z.object({ crawled: z.int().min(0), failed: z.int().min(0) }),
