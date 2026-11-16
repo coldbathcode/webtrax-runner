@@ -30,7 +30,7 @@ export const LINK_RULES = [
   rule('links.sitemap.stale', 'low', 'Sitemap lists a URL that does not return 200', 'Search engines waste crawl budget on sitemap entries that error or redirect.', 'Remove the entry or replace it with the URL that now holds the content.'),
   rule('links.orphan', 'info', 'Page is in the sitemap but no crawled page links to it', 'Orphan pages are hard for visitors to find and get less weight from search engines.', 'Link to it from a relevant page, or remove it from the sitemap if it is retired.'),
   rule('links.soft_404', 'medium', 'Page says "not found" but returns 200', 'Search engines may index an error page, and monitoring sees it as healthy.', 'Return a real 404 (or 410) status for missing content.'),
-  rule('links.canonical.broken', 'medium', 'Canonical URL does not return 200', 'Search engines may ignore the canonical or drop the page.', 'Point rel=canonical at the live, preferred URL of this page.'),
+  rule('links.canonical.broken', 'medium', 'Canonical URL redirects or does not return 200', 'Search engines may ignore a canonical that redirects or errors, or drop the page.', 'Point rel=canonical at the final, live, preferred URL of this page.'),
   rule('links.host_rate_limited', 'info', 'A host kept rate limiting the crawl', 'Some links on this host could not be checked; they are not reported as broken.', 'Allow WebtraxBot a higher rate (see webtrax.dev/bot), or lower the crawl rate.'),
 ] satisfies RuleMeta[]
 
@@ -93,7 +93,8 @@ export const linksSuite: CheckSuite = {
         continue
       }
       if (edge.kind === 'canonical') {
-        if (problem || outcome.status !== 200) await ctx.emit({ rule_id: 'links.canonical.broken', url: edge.to, source_url: edge.from, evidence: evidenceOf(outcome, finalUrl, edge.to) })
+        // A canonical must name the final URL itself: one that redirects is usually ignored by search engines.
+        if (problem || outcome.status !== 200 || hops > 0) await ctx.emit({ rule_id: 'links.canonical.broken', url: edge.to, source_url: edge.from, evidence: { ...evidenceOf(outcome, finalUrl, edge.to), ...(hops > 0 ? { redirects: hops } : {}) } })
         continue
       }
 

@@ -71,12 +71,15 @@ describe('links suite: onSite', () => {
   it('reports stale sitemap entries, orphans and broken canonicals', async () => {
     const { c, rules } = ctx()
     await linksSuite.onSite!(c, site(
-      [out(`${O}/orphan`), out(`${O}/gone`, { status: 404 }), out(`${O}/moved`, { status: 301, finalUrl: 'https://other.test/', chain: [{ url: `${O}/moved`, status: 301 }] }), out(`${O}/canon`, { status: 404 })],
+      [out(`${O}/orphan`), out(`${O}/gone`, { status: 404 }), out(`${O}/moved`, { status: 301, finalUrl: 'https://other.test/', chain: [{ url: `${O}/moved`, status: 301 }] }), out(`${O}/canon`, { status: 404 }),
+        out(`${O}/p.html`, { status: 200, finalUrl: `${O}/p`, chain: [{ url: `${O}/p.html`, status: 301 }] }), out(`${O}/q`)],
       [{ from: `${O}/sitemap.xml`, to: `${O}/orphan`, text: '', kind: 'sitemap' }, { from: `${O}/sitemap.xml`, to: `${O}/gone`, text: '', kind: 'sitemap' },
-        { from: `${O}/sitemap.xml`, to: `${O}/moved`, text: '', kind: 'sitemap' }, { from: `${O}/`, to: `${O}/canon`, text: '', kind: 'canonical' }],
+        { from: `${O}/sitemap.xml`, to: `${O}/moved`, text: '', kind: 'sitemap' }, { from: `${O}/`, to: `${O}/canon`, text: '', kind: 'canonical' },
+        { from: `${O}/p`, to: `${O}/p.html`, text: '', kind: 'canonical' }, { from: `${O}/r`, to: `${O}/q`, text: '', kind: 'canonical' }],
     ))
     expect(rules().sort()).toEqual([
       `links.canonical.broken ${O}/canon <- ${O}/`,
+      `links.canonical.broken ${O}/p.html <- ${O}/p`,
       `links.orphan ${O}/orphan`,
       `links.sitemap.stale ${O}/gone <- ${O}/sitemap.xml`,
       `links.sitemap.stale ${O}/moved <- ${O}/sitemap.xml`,

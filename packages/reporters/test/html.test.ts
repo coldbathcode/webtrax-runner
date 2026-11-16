@@ -8,7 +8,8 @@ import { buildReport, renderHtml } from '../src'
 import { RECORDS, RULES } from './sample'
 
 let browser: Browser
-beforeAll(async () => { browser = await chromium.launch() })
+// A real browser plus axe takes longer than vitest's 5 s default on busy CI runners.
+beforeAll(async () => { browser = await chromium.launch() }, 60_000)
 afterAll(async () => { await browser?.close() })
 
 const html = renderHtml(buildReport(RECORDS, RULES))
@@ -25,5 +26,5 @@ describe.each(['light', 'dark'] as const)('HTML report in %s mode', (colorScheme
     expect(result.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([])
     expect(requests).toEqual([])
     await context.close()
-  })
+  }, 30_000)
 })

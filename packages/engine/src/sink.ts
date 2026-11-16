@@ -24,14 +24,14 @@ export class MemorySink implements Sink {
   }
 }
 
-/** `<root>/.webtrax/runs/<timestamp>/run.ndjson`, one validated record per line. */
+/** `<root>/.webtrax/runs/<timestamp>/run.ndjson` (or `<runsDir>/<timestamp>/…`), one validated record per line. */
 export class LocalSink implements Sink {
   readonly dir: string
   readonly file: string
   private readonly stream: WriteStream
 
-  constructor(root: string, startedAt = new Date()) {
-    this.dir = join(root, '.webtrax', 'runs', startedAt.toISOString().replace(/[:.]/g, '-'))
+  constructor(root: string, startedAt = new Date(), runsDir = join(root, '.webtrax', 'runs')) {
+    this.dir = join(runsDir, startedAt.toISOString().replace(/[:.]/g, '-'))
     mkdirSync(this.dir, { recursive: true })
     this.file = join(this.dir, 'run.ndjson')
     this.stream = createWriteStream(this.file, { flags: 'wx' })

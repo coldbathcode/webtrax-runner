@@ -16,7 +16,7 @@ claude mcp add webtrax -- npx -y @webtrax/cli mcp    # not published yet
 | `@webtrax/engine` | Crawl engine: one fetch per URL, robots.txt, sitemaps, per-host politeness, 429 handling, time budget and cancellation | Built (C05.3) |
 | `@webtrax/suite-links`, `@webtrax/suite-security`, `@webtrax/suite-seo` | Check suites: broken links, redirects, sitemaps and canonicals; passive security (HTTPS, headers, CSP, mixed content); SEO basics | Built (C05.4) |
 | `@webtrax/reporters` | Console, JSON/NDJSON, Markdown (for PRs and LLMs), single-file accessible HTML | Built (C05.5) |
-| `@webtrax/cli` | `webtrax check`, `webtrax mcp` | Next (C05.6, C05.7) |
+| `@webtrax/cli` | `webtrax check`, `init`, `diff`, `explain`, `doctor`; `webtrax mcp` next | `check` built (C05.6); MCP next (C05.7) |
 
 The crawler identifies itself as `Mozilla/5.0 (compatible; WebtraxBot/1.0; +https://webtrax.dev/bot)` and honours `robots.txt` and `Crawl-delay`. See [webtrax.dev/bot](https://webtrax.dev/bot).
 
