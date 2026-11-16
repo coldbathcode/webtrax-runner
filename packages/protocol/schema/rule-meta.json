@@ -1,0 +1,75 @@
+{
+  "$id": "https://webtrax.dev/schema/runner/v1/rule-meta.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$"
+    },
+    "suite": {
+      "type": "string",
+      "enum": [
+        "links",
+        "performance",
+        "security",
+        "seo",
+        "a11y",
+        "content",
+        "ai_readiness",
+        "monitor"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "info"
+      ]
+    },
+    "why": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fix": {
+      "type": "string",
+      "minLength": 1
+    },
+    "docs_slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "tags": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "suite",
+    "title",
+    "version",
+    "severity",
+    "why",
+    "fix",
+    "docs_slug",
+    "tags"
+  ],
+  "additionalProperties": false
+}

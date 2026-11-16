@@ -1,0 +1,20 @@
+{
+  "name": "@webtrax/runner-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Root of the open source Webtrax runner (Apache-2.0). Built in this monorepo until the alpha, then split out to coldbathcode/webtrax-runner (ADR 0010).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.2",
+    "vitest": "^4.1.12"
+  }
+}

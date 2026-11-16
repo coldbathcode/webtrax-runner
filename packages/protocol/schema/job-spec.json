@@ -1,0 +1,303 @@
+{
+  "$id": "https://webtrax.dev/schema/runner/v1/job-spec.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "spec_version": {
+      "type": "number",
+      "const": 1
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "start_url": {
+          "type": "string",
+          "maxLength": 4096,
+          "pattern": "^https?:\\/\\/"
+        },
+        "urls": {
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096,
+            "pattern": "^https?:\\/\\/"
+          }
+        }
+      },
+      "required": [
+        "start_url"
+      ]
+    },
+    "scope": {
+      "default": {
+        "include": [],
+        "exclude": [],
+        "check_external": true,
+        "allow_private": false,
+        "respect_robots": true
+      },
+      "type": "object",
+      "properties": {
+        "include": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "check_external": {
+          "default": true,
+          "type": "boolean"
+        },
+        "allow_private": {
+          "default": false,
+          "type": "boolean"
+        },
+        "respect_robots": {
+          "default": true,
+          "type": "boolean"
+        }
+      }
+    },
+    "limits": {
+      "default": {
+        "max_pages": 300,
+        "max_depth": 10,
+        "concurrency": 4,
+        "per_host_rps": 2,
+        "time_budget_s": 600
+      },
+      "type": "object",
+      "properties": {
+        "max_pages": {
+          "default": 300,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "max_depth": {
+          "default": 10,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "concurrency": {
+          "default": 4,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "per_host_rps": {
+          "default": 2,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 50
+        },
+        "time_budget_s": {
+          "default": 600,
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 86400
+        }
+      }
+    },
+    "suites": {
+      "default": {
+        "links": {
+          "enabled": true,
+          "config": {}
+        }
+      },
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "enum": [
+          "links",
+          "performance",
+          "security",
+          "seo",
+          "a11y",
+          "content",
+          "ai_readiness",
+          "monitor"
+        ]
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          },
+          "config": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "headers": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "ref": {
+                    "type": "string",
+                    "pattern": "^(env|vault|file):.+"
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              }
+            ]
+          }
+        },
+        "basic": {
+          "type": "object",
+          "properties": {
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "pattern": "^(env|vault|file):.+"
+                    }
+                  },
+                  "required": [
+                    "ref"
+                  ]
+                }
+              ]
+            }
+          },
+          "required": [
+            "username",
+            "password"
+          ]
+        },
+        "cookies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "ref": {
+                        "type": "string",
+                        "pattern": "^(env|vault|file):.+"
+                      }
+                    },
+                    "required": [
+                      "ref"
+                    ]
+                  }
+                ]
+              },
+              "domain": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ]
+          }
+        }
+      }
+    },
+    "user_agent": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "evidence": {
+      "default": "standard",
+      "type": "string",
+      "enum": [
+        "minimal",
+        "standard",
+        "full"
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "redact": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "standard",
+            "off"
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "redact"
+      ]
+    },
+    "labels": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "spec_version",
+    "job_id",
+    "target"
+  ]
+}
