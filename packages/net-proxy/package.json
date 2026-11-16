@@ -1,0 +1,29 @@
+{
+  "name": "@webtrax/net-proxy",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Egress proxy for the Webtrax runner's browser stage: Chromium reaches the network only through it, and every connection is checked against the scope policy at connect time, on the address actually used.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@webtrax/net-guard": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "eslint": "^9.39.5",
+    "playwright-core": "1.57.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
+  }
+}

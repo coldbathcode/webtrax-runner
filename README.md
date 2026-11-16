@@ -15,6 +15,7 @@ Cursor (`.cursor/mcp.json`): `{ "mcpServers": { "webtrax": { "command": "npx", "
 |---|---|---|
 | `@webtrax/protocol` | Job spec and run records (Zod + JSON Schema), fingerprints, the WebtraxBot identity | Built (C05.1) |
 | `@webtrax/net-guard` | Scope policy and guarded fetch: no private networks or cloud metadata, every redirect and DNS answer checked | Built (C05.2) |
+| `@webtrax/net-proxy` | Egress proxy for the browser stage: Chromium reaches the network only through the scope policy | Built (C05.10) |
 | `@webtrax/engine` | Crawl engine: one fetch per URL, robots.txt, sitemaps, per-host politeness, 429 handling, time budget and cancellation | Built (C05.3) |
 | `@webtrax/suite-links`, `@webtrax/suite-security`, `@webtrax/suite-seo` | Check suites: broken links, redirects, sitemaps and canonicals; passive security (HTTPS, headers, CSP, mixed content); SEO basics | Built (C05.4) |
 | `@webtrax/reporters` | Console, JSON/NDJSON, Markdown (for PRs and LLMs), single-file accessible HTML | Built (C05.5) |
