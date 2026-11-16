@@ -2,12 +2,14 @@
 
 The open source engine behind [Webtrax](https://webtrax.dev), the agentic platform for website quality. It crawls a website once and checks it for broken links, redirect problems, missing security headers, SEO basics and, later, accessibility and performance. It writes reports for people, CI and coding agents, and runs as a local MCP server so a coding agent can check `localhost` before it commits.
 
-**Status: in development.** Nothing here is released yet. The first public release is the alpha:
+**Status: in development.** Nothing here is published to npm yet; the first public release is the alpha. From this repo: `pnpm --filter @webtrax/cli build`, then `node runner/packages/cli/dist/webtrax.js check https://your-site.example`.
 
 ```bash
-npx @webtrax/cli check https://your-site.example     # not published yet
-claude mcp add webtrax -- npx -y @webtrax/cli mcp    # not published yet
+npx @webtrax/cli check https://your-site.example     # once published
+claude mcp add webtrax -- npx -y @webtrax/cli mcp    # local MCP server for Claude Code
 ```
+
+Cursor (`.cursor/mcp.json`): `{ "mcpServers": { "webtrax": { "command": "npx", "args": ["-y", "@webtrax/cli", "mcp"] } } }`. The MCP server checks only local targets (localhost, `*.local`, private IPs) unless started with `--allow-public`.
 
 | Package | What | State |
 |---|---|---|
@@ -16,7 +18,7 @@ claude mcp add webtrax -- npx -y @webtrax/cli mcp    # not published yet
 | `@webtrax/engine` | Crawl engine: one fetch per URL, robots.txt, sitemaps, per-host politeness, 429 handling, time budget and cancellation | Built (C05.3) |
 | `@webtrax/suite-links`, `@webtrax/suite-security`, `@webtrax/suite-seo` | Check suites: broken links, redirects, sitemaps and canonicals; passive security (HTTPS, headers, CSP, mixed content); SEO basics | Built (C05.4) |
 | `@webtrax/reporters` | Console, JSON/NDJSON, Markdown (for PRs and LLMs), single-file accessible HTML | Built (C05.5) |
-| `@webtrax/cli` | `webtrax check`, `init`, `diff`, `explain`, `doctor`; `webtrax mcp` next | `check` built (C05.6); MCP next (C05.7) |
+| `@webtrax/cli` | `webtrax check`, `init`, `diff`, `explain`, `doctor`, and `webtrax mcp` (local MCP server for coding agents) | Built (C05.6, C05.7) |
 
 The crawler identifies itself as `Mozilla/5.0 (compatible; WebtraxBot/1.0; +https://webtrax.dev/bot)` and honours `robots.txt` and `Crawl-delay`. See [webtrax.dev/bot](https://webtrax.dev/bot).
 

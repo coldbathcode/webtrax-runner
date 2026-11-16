@@ -1,5 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -141,4 +143,17 @@ describe('the built executable', () => {
     expect(runs(dir)).toHaveLength(1)
     rmSync(dir, { recursive: true, force: true })
   }, 60_000)
+
+  it('serves MCP over stdio, as Claude Code or Cursor would launch it', async () => {
+    const dir = fresh()
+    const client = new Client({ name: 'stdio-test', version: '1' })
+    await client.connect(new StdioClientTransport({ command: 'node', args: [bin, 'mcp'], cwd: dir, stderr: 'ignore' }))
+    try {
+      expect((await client.listTools()).tools.map((t) => t.name)).toContain('audit_page')
+      const r = (await client.callTool({ name: 'check_urls', arguments: { urls: [`${fixture.origin}/missing`] } })) as { content: { text: string }[] }
+      expect(JSON.parse(r.content[0]!.text).results[0].classification).toBe('broken')
+    } finally {
+      await client.close()
+    }
+  })
 })

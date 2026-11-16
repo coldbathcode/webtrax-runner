@@ -6,24 +6,22 @@
  * Exit codes (rebuild/06): 0 ok, 1 findings at or above --fail-on,
  * 2 usage or config error, 3 the target could not be crawled.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { lookup } from 'node:dns/promises'
 import { join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { crawl, LocalSink, MemorySink, TeeSink, type CrawlResult } from '@webtrax/engine'
 import { createGuardedFetch } from '@webtrax/net-guard'
-import { atLeast, BOT_USER_AGENT, parseNdjson, type RuleMeta, type RunLine } from '@webtrax/protocol'
+import { atLeast, BOT_USER_AGENT } from '@webtrax/protocol'
 import { buildReport, renderConsole, renderHtml, renderJson, renderMarkdown, shortId } from '@webtrax/reporters'
-import { linksSuite } from '@webtrax/suite-links'
-import { securitySuite } from '@webtrax/suite-security'
-import { seoSuite } from '@webtrax/suite-seo'
+import { serveMcp } from './mcp'
+import { listRuns, readRun as readRunAt, RULES, runsDir, SUITES } from './runs'
 import { buildSpec, CONFIG_FILE, ConfigError, configTemplate, loadConfig, normaliseTarget, parseFailOn, parseSuites, type FailOn } from './config'
 
 export const VERSION = typeof __WEBTRAX_VERSION__ === 'string' ? __WEBTRAX_VERSION__ : '0.0.0-dev'
 declare const __WEBTRAX_VERSION__: string | undefined
 
-export const SUITES = [linksSuite, securitySuite, seoSuite]
-export const RULES: RuleMeta[] = SUITES.flatMap((s) => s.rules)
+export { RULES, SUITES } from './runs'
 export const EXIT = { ok: 0, findings: 1, usage: 2, unreachable: 3 } as const
 
 export interface Io {
@@ -44,6 +42,7 @@ Usage
   webtrax diff <runA> <runB>      compare two runs: new, fixed and persisting findings
   webtrax explain <rule|finding>  how to fix a rule, or a finding from the latest run
   webtrax doctor                  check that this machine can run webtrax
+  webtrax mcp [--allow-public]    local MCP server for coding agents (stdio)
 
 Options for check
   --config <file>        config file (default: ./webtrax.yml if present)
@@ -82,6 +81,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
       case 'diff': return diff(rest, io)
       case 'explain': return explain(rest, io)
       case 'doctor': return await doctor(io)
+      case 'mcp': return await mcp(rest, io)
       case '--version': case '-v': case 'version': io.stdout(`${VERSION}\n`); return EXIT.ok
       case undefined: case '--help': case '-h': case 'help': io.stdout(HELP); return command === undefined ? EXIT.usage : EXIT.ok
       default:
@@ -178,21 +178,8 @@ function init(args: string[], io: Io): number {
   return EXIT.ok
 }
 
-/** Runs under <root>/.webtrax/runs, newest last. */
-function runDirs(root: string): string[] {
-  const dir = join(root, '.webtrax', 'runs')
-  return existsSync(dir) ? readdirSync(dir).filter((d) => existsSync(join(dir, d, 'run.ndjson'))).sort().map((d) => join(dir, d)) : []
-}
-
-function readRun(io: Io, ref: string): RunLine[] {
-  const candidates = [resolve(io.cwd, ref), resolve(io.cwd, ref, 'run.ndjson'), join(io.cwd, '.webtrax', 'runs', ref, 'run.ndjson')]
-  const file = candidates.find((c) => existsSync(c) && c.endsWith('.ndjson'))
-  if (!file) throw new ConfigError(`no run found at ${ref}`)
-  const lines = parseNdjson(readFileSync(file, 'utf8'))
-  const bad = lines.filter((l) => !l.ok)
-  if (bad.length) throw new ConfigError(`${file}: ${bad.length} invalid line(s), first at line ${bad[0]!.line}`)
-  return lines.flatMap((l) => (l.ok ? [l.record] : []))
-}
+const runDirs = (root: string) => listRuns(root).map((id) => join(runsDir(root), id))
+const readRun = (io: Io, ref: string) => readRunAt(io.cwd, ref)
 
 function diff(args: string[], io: Io): number {
   const { positionals } = parseArgs({ args, allowPositionals: true, options: {} })
@@ -262,4 +249,10 @@ async function doctor(io: Io): Promise<number> {
   }
   for (const r of results) io.stdout(`${r.ok ? '✓' : '✗'} ${r.what}${!r.ok && r.fix ? `\n  ${r.fix}` : ''}\n`)
   return results.every((r) => r.ok) ? EXIT.ok : EXIT.usage
+}
+
+async function mcp(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({ args, options: { 'allow-public': { type: 'boolean' } } })
+  await serveMcp({ root: io.cwd, allowPublic: values['allow-public'] ?? false, version: VERSION })
+  return EXIT.ok
 }
