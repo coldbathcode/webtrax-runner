@@ -1,0 +1,41 @@
+# Publishes @webtrax/cli to npm when a version tag (v0.1.0 …) is pushed, with
+# npm provenance. Guarded: refuses while packages/cli is still marked private
+# (it stays private until the founder approves the alpha release, C05.9), and
+# when the tag does not match the CLI's version. Needs the NPM_TOKEN secret
+# (an npm automation token for the `webtrax` org) until trusted publishing is
+# configured on npmjs.com.
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - name: "Guard: the CLI is public and the tag matches its version"
+        run: |
+          node -e '
+            const p = require("./packages/cli/package.json")
+            const tag = process.env.GITHUB_REF_NAME.replace(/^v/, "")
+            if (p.private) { console.error("packages/cli is still private: not approved for publishing"); process.exit(1) }
+            if (p.version !== tag) { console.error(`tag ${tag} does not match @webtrax/cli ${p.version}`); process.exit(1) }
+          '
+      - run: pnpm --filter @webtrax/net-proxy exec playwright-core install --with-deps chromium
+      - run: pnpm run check
+      - run: pnpm run build
+      - name: Publish @webtrax/cli
+        working-directory: packages/cli
+        run: pnpm publish --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -7,3 +7,4 @@ The Webtrax runner, CLI and local MCP server (MASTER_PLAN C05). Built inside thi
 - **Packages:** `packages/<name>`, published as `@webtrax/<name>` at the alpha. They stay `"private": true` until C05.9. The executor is `@webtrax/engine` (`@webtrax/core` is the cloud's).
 - **Behaviour reference:** v1's crawler in `apps/legacy/runner/lib/` (`crawl-core.js`, `address.js`, `guarded-fetch.js`) and its tests. Port semantics exactly unless the plan says otherwise.
 - **Commands:** `pnpm --filter './runner/**' test`, or `pnpm run check` at the root (the pre-push hook) which includes these packages.
+- **Public-repo files, dormant here:** `action/` (the GitHub Action, tested in the monorepo CI against the fixture with the local CLI build), `.github/workflows/ci.yml` and `release.yml` (publish `@webtrax/cli` on a `v*` tag; refuses while `packages/cli` is private). GitHub only reads the monorepo's root `.github`, so they activate after `scripts/split-runner.sh`.

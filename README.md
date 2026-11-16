@@ -9,6 +9,8 @@ npx @webtrax/cli check https://your-site.example     # once published
 claude mcp add webtrax -- npx -y @webtrax/cli mcp    # local MCP server for Claude Code
 ```
 
+GitHub Action: `uses: coldbathcode/webtrax-runner/action@v1` with `url:` (see [action/README.md](action/README.md)).
+
 Cursor (`.cursor/mcp.json`): `{ "mcpServers": { "webtrax": { "command": "npx", "args": ["-y", "@webtrax/cli", "mcp"] } } }`. The MCP server checks only local targets (localhost, `*.local`, private IPs) unless started with `--allow-public`.
 
 | Package | What | State |

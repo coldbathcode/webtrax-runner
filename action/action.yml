@@ -1,0 +1,89 @@
+name: Webtrax check
+description: Check a website (for example a preview deploy) for broken links, redirects, security headers, SEO basics, and optionally accessibility and performance.
+author: Webtrax
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  url:
+    description: The site to check, e.g. the preview deploy URL.
+    required: true
+  fail-on:
+    description: Fail the step when a finding is at this severity or worse (critical, high, medium, low, info, none).
+    default: high
+  browser:
+    description: Also run the accessibility and performance suites in Chromium (installs it on the runner).
+    default: 'false'
+  max-pages:
+    description: Pages to crawl.
+    default: '300'
+  suites:
+    description: Comma-separated suites (links, security, seo, a11y, performance). Empty means the defaults.
+    default: ''
+  args:
+    description: Extra arguments for `webtrax check`, e.g. "--ignore seo.noindex".
+    default: ''
+  summary:
+    description: Write the Markdown report to the job summary.
+    default: 'true'
+  version:
+    description: Version of @webtrax/cli to run.
+    default: latest
+  cli:
+    description: Path to a webtrax.js to run instead of the npm package (used to test this action).
+    default: ''
+
+outputs:
+  exit-code:
+    description: The exit code of webtrax check (0 ok, 1 findings at or above fail-on, 2 usage error, 3 site unreachable).
+    value: ${{ steps.check.outputs.exit-code }}
+  report-dir:
+    description: Directory with report.html, report.md, report.sarif and run.ndjson.
+    value: ${{ steps.check.outputs.report-dir }}
+  sarif-file:
+    description: The SARIF report, for github/codeql-action/upload-sarif.
+    value: ${{ steps.check.outputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Install Chromium
+      if: inputs.browser == 'true'
+      shell: bash
+      run: npx -y playwright@1.57.0 install --with-deps chromium
+    - id: check
+      name: webtrax check
+      shell: bash
+      env:
+        URL: ${{ inputs.url }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        BROWSER: ${{ inputs.browser }}
+        MAX_PAGES: ${{ inputs.max-pages }}
+        SUITES: ${{ inputs.suites }}
+        ARGS: ${{ inputs.args }}
+        SUMMARY: ${{ inputs.summary }}
+        VERSION: ${{ inputs.version }}
+        CLI: ${{ inputs.cli }}
+      run: |
+        out="$RUNNER_TEMP/webtrax"
+        if [ -n "$CLI" ]; then cmd=(node "$CLI"); else cmd=(npx -y "@webtrax/cli@$VERSION"); fi
+        flags=(--fail-on "$FAIL_ON" --max-pages "$MAX_PAGES" --out "$out" --reports html,md,sarif --stdout md)
+        [ "$BROWSER" = "true" ] && flags+=(--browser)
+        [ -n "$SUITES" ] && flags+=(--suites "$SUITES")
+        # shellcheck disable=SC2206
+        [ -n "$ARGS" ] && flags+=($ARGS)
+        set +e
+        "${cmd[@]}" check "$URL" "${flags[@]}" > "$RUNNER_TEMP/webtrax-report.md"
+        code=$?
+        set -e
+        run_dir=$(ls -d "$out"/runs/*/ 2>/dev/null | tail -1)
+        cat "$RUNNER_TEMP/webtrax-report.md"
+        if [ "$SUMMARY" = "true" ]; then cat "$RUNNER_TEMP/webtrax-report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "report-dir=${run_dir%/}" >> "$GITHUB_OUTPUT"
+        if [ -n "$run_dir" ]; then echo "sarif-file=${run_dir}report.sarif" >> "$GITHUB_OUTPUT"; else echo "sarif-file=" >> "$GITHUB_OUTPUT"; fi
+        exit $code
