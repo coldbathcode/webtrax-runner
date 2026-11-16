@@ -1,5 +1,6 @@
 // @webtrax/engine: the crawl engine (C05.3). Apache-2.0.
 export * from './engine'
+export * from './suite'
 export * from './sink'
 export * from './throttle'
 export * from './robots'

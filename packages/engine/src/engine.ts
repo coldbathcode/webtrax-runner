@@ -19,8 +19,8 @@
  */
 import { createGuardedFetch, type GuardedFetch, type RedirectHop } from '@webtrax/net-guard'
 import {
-  BOT_USER_AGENT, JobSpec, normaliseUrl, PROTOCOL_VERSION, type FetchError, type JobSpecInput, type PageRecord, type RunLine, type StopReason,
-  type SummaryRecord,
+  BOT_USER_AGENT, fingerprint, JobSpec, normaliseUrl, PROTOCOL_VERSION, RuleMeta, type FetchError, type FindingRecord, type JobSpecInput, type PageRecord,
+  type RunLine, type Severity, type StopReason, type SummaryRecord,
 } from '@webtrax/protocol'
 import { isBrokenOutcome } from './classify'
 import { isHtml, parseHtml, type ParsedDoc } from './html'
@@ -28,6 +28,7 @@ import { createRequester, type Outcome, type Requester } from './requester'
 import { ALLOW_ALL, parseRobots, type Robots } from './robots'
 import { parseSitemap } from './sitemap'
 import { MemorySink, type Sink } from './sink'
+import type { CheckSuite, FindingInput, SuiteCtx } from './suite'
 import { HostThrottle, realClock, sharedThrottle, type ThrottleClock } from './throttle'
 
 export interface EngineOptions {
@@ -74,12 +75,14 @@ export interface LinkOutcome {
   chain: RedirectHop[]
 }
 
-export interface LinkEdge { from: string; to: string; text: string; kind: 'link' | 'sitemap' }
+export interface LinkEdge { from: string; to: string; text: string; kind: 'link' | 'sitemap' | 'canonical' }
 
 /** Everything a crawl learned, for site-level suites (C05.4) and reports. */
 export interface SiteState {
   origin: string
   startUrl: string
+  /** What the spec asked for, before same-site redirects. */
+  requestedStartUrl: string
   robots: Robots
   pages: Map<string, PageRecord>
   links: Map<string, LinkOutcome>
@@ -96,11 +99,15 @@ export interface CrawlDeps {
   signal?: AbortSignal
   /** Called once per crawled HTML page with its parsed document. */
   onPage?: (page: CrawledPage) => void | Promise<void>
+  /** Check suites available to this run; the spec's `suites` decides which run. */
+  suites?: CheckSuite[]
   runner?: { name: string; version: string }
   options?: Partial<EngineOptions>
 }
 
-export interface CrawlResult { summary: SummaryRecord; site: SiteState | null }
+export interface SuiteError { suite: string; hook: 'onPage' | 'onSite'; url?: string; message: string }
+
+export interface CrawlResult { summary: SummaryRecord; site: SiteState | null; findings: FindingRecord[]; suiteErrors: SuiteError[] }
 
 interface QueueItem { url: string; depth: number; referer?: string; prefetched?: Outcome }
 
@@ -195,17 +202,51 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const write = async (record: RunLine) => sink.write(record)
   await write({ type: 'run', protocol_version: PROTOCOL_VERSION, job_id: spec.job_id, started_at: startedAt, runner: deps.runner ?? { name: '@webtrax/engine', version: '0.0.0' }, user_agent: userAgent, spec })
 
+  // Suites: those the spec enables, with their rules validated up front.
+  const findings: FindingRecord[] = []
+  const findingSeverity = new Map<string, Severity>()
+  const emitted = new Set<string>()
+  const suiteErrors: SuiteError[] = []
+  const active = (deps.suites ?? []).filter((suite) => spec.suites[suite.id]?.enabled)
+  const rules = new Map<string, { suite: CheckSuite; meta: RuleMeta }>()
+  for (const suite of active) {
+    for (const raw of suite.rules) {
+      const meta = RuleMeta.parse(raw)
+      if (meta.suite !== suite.id || !meta.id.startsWith(`${suite.id}.`)) throw new Error(`rule ${meta.id} does not belong to suite ${suite.id}`)
+      if (rules.has(meta.id)) throw new Error(`rule ${meta.id} is declared twice`)
+      rules.set(meta.id, { suite, meta })
+    }
+  }
+
+  const emitFor = (suite: CheckSuite) => async (input: FindingInput) => {
+    const rule = rules.get(input.rule_id)
+    if (!rule || rule.suite !== suite) throw new Error(`suite ${suite.id} emitted undeclared rule ${input.rule_id}`)
+    const url = input.url === null ? null : (normaliseUrl(input.url) ?? input.url)
+    const fp = await fingerprint(rule.meta.id, url, input.evidence_key ?? '')
+    const key = `${fp} ${input.source_url ?? ''}`
+    if (emitted.has(key)) return
+    emitted.add(key)
+    const record: FindingRecord = {
+      type: 'finding', fingerprint: fp, suite: suite.id, rule_id: rule.meta.id, rule_version: rule.meta.version, severity: input.severity ?? rule.meta.severity,
+      url, ...(input.source_url ? { source_url: input.source_url } : {}), title: input.title ?? rule.meta.title, evidence: input.evidence ?? {},
+    }
+    findings.push(record)
+    findingSeverity.set(fp, record.severity)
+    await write(record)
+  }
+
   const finish = async (summary: Omit<SummaryRecord, 'type' | 'job_id' | 'started_at' | 'finished_at' | 'findings' | 'suites'>, site: SiteState | null): Promise<CrawlResult> => {
     clearTimeout(budgetTimer)
     clearTimeout(drainTimer)
     deps.signal?.removeEventListener('abort', onCancel)
     const record: SummaryRecord = {
       type: 'summary', job_id: spec.job_id, started_at: startedAt, finished_at: new Date(clock.now()).toISOString(),
-      findings: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }, suites: [], ...summary,
+      findings: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }, suites: active.map((x) => ({ id: x.id, version: x.version, requires: x.requires })), ...summary,
     }
+    for (const severity of findingSeverity.values()) record.findings[severity] += 1
     await write(record)
     await ownFetch?.close()
-    return { summary: record, site }
+    return { summary: record, site, findings, suiteErrors }
   }
 
   // 1. The start URL: reachable, and on this site.
@@ -251,7 +292,20 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   }
 
   // 3. The crawl.
-  const site: SiteState = { origin, startUrl, robots, pages: new Map(), links: new Map(), edges: [], sitemapUrls }
+  const site: SiteState = { origin, startUrl, requestedStartUrl: spec.target.start_url, robots, pages: new Map(), links: new Map(), edges: [], sitemapUrls }
+  const ctxFor = (suite: CheckSuite): SuiteCtx => ({
+    spec, config: spec.suites[suite.id]?.config ?? {}, origin, startUrl, requestedStartUrl: spec.target.start_url, emit: emitFor(suite),
+    request: (url) => requester.page(url, undefined, () => true),
+  })
+  const contexts = new Map(active.map((suite) => [suite, ctxFor(suite)]))
+  const runHook = async (suite: CheckSuite, hook: 'onPage' | 'onSite', call: () => void | Promise<void>, url?: string) => {
+    try {
+      await call()
+    } catch (error) {
+      // A broken suite must not take the crawl down with it.
+      suiteErrors.push({ suite: suite.id, hook, ...(url ? { url } : {}), message: error instanceof Error ? error.message : String(error) })
+    }
+  }
   const included = spec.scope.include.length ? pathMatcher(spec.scope.include) : () => true
   const excluded = spec.scope.exclude.length ? pathMatcher(spec.scope.exclude) : () => false
   const frontier = new Frontier()
@@ -330,7 +384,16 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     if (!doc) return
 
     pagesCrawled += 1
-    await deps.onPage?.({ url: finalUrl, depth: item.depth, outcome, doc })
+    const crawled: CrawledPage = { url: finalUrl, depth: item.depth, outcome, doc }
+    await deps.onPage?.(crawled)
+    for (const suite of active) if (suite.onPage) await runHook(suite, 'onPage', () => suite.onPage!(contexts.get(suite)!, crawled), finalUrl)
+    if (doc.canonical) {
+      const canonical = normaliseUrl(doc.canonical, doc.baseUrl)
+      if (canonical && canonical !== finalUrl) {
+        site.edges.push({ from: finalUrl, to: canonical, text: '', kind: 'canonical' })
+        if (!stopReason) discover(canonical, item.depth + 1, finalUrl)
+      }
+    }
     const seen = new Set<string>()
     for (const link of doc.links) {
       const target = normaliseUrl(link.href, doc.baseUrl)
@@ -381,6 +444,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   }
   await Promise.all(Array.from({ length: spec.limits.concurrency }, worker))
   await Promise.all(linkChecks.values())
+
+  for (const suite of active) if (suite.onSite) await runHook(suite, 'onSite', () => suite.onSite!(contexts.get(suite)!, site))
 
   // Counted per distinct link target (a link or a sitemap entry), not per page that links to it.
   const targets = [...new Set(site.edges.map((e) => e.to))].map((url) => site.links.get(url)).filter((o): o is LinkOutcome => !!o)

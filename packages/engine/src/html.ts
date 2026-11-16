@@ -6,7 +6,14 @@
 import { load, type CheerioAPI } from 'cheerio'
 
 export interface ExtractedLink { href: string; text: string; rel?: string }
-export interface ParsedDoc { $: CheerioAPI; title: string | undefined; baseUrl: string; links: ExtractedLink[] }
+export interface ParsedDoc {
+  $: CheerioAPI
+  title: string | undefined
+  baseUrl: string
+  links: ExtractedLink[]
+  /** `<link rel="canonical">`, as written (resolve against `baseUrl`). */
+  canonical: string | undefined
+}
 
 export function parseHtml(html: string, pageUrl: string): ParsedDoc {
   const $ = load(html)
@@ -24,7 +31,8 @@ export function parseHtml(html: string, pageUrl: string): ParsedDoc {
     const rel = $(el).attr('rel')
     links.push({ href, text: $(el).text().replace(/\s+/g, ' ').trim().slice(0, 200), ...(rel ? { rel } : {}) })
   })
-  return { $, title, baseUrl, links }
+  const canonical = $('link[rel~="canonical"][href]').first().attr('href') || undefined
+  return { $, title, baseUrl, links, canonical }
 }
 
 export const isHtml = (contentType: string | undefined) => !!contentType && /text\/html|application\/xhtml\+xml/i.test(contentType)
