@@ -51,10 +51,31 @@ runs:
     - uses: actions/setup-node@v4
       with:
         node-version: 22
+    # The CLI goes into its own prefix: npx inside the user's repository can
+    # take a package as installed when that repo has its own node_modules.
+    - id: install
+      name: Install @webtrax/cli
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        CLI: ${{ inputs.cli }}
+      run: |
+        if [ -n "$CLI" ]; then echo "cli=$CLI" >> "$GITHUB_OUTPUT"; exit 0; fi
+        prefix="$RUNNER_TEMP/webtrax-cli"
+        mkdir -p "$prefix"
+        npm install --prefix "$prefix" --no-audit --no-fund --loglevel=error "@webtrax/cli@$VERSION"
+        echo "cli=$prefix/node_modules/@webtrax/cli/dist/webtrax.js" >> "$GITHUB_OUTPUT"
+        echo "bin=$prefix/node_modules/.bin" >> "$GITHUB_OUTPUT"
+        node "$prefix/node_modules/@webtrax/cli/dist/webtrax.js" --version
+    # Chromium from the playwright-core the CLI depends on, so the versions match.
     - name: Install Chromium
       if: inputs.browser == 'true'
       shell: bash
-      run: npx -y playwright@1.57.0 install --with-deps chromium
+      env:
+        BIN: ${{ steps.install.outputs.bin }}
+      run: |
+        if [ -n "$BIN" ] && [ -x "$BIN/playwright-core" ]; then "$BIN/playwright-core" install --with-deps chromium
+        else cd "$RUNNER_TEMP" && npx -y playwright-core@1.57.0 install --with-deps chromium; fi
     - id: check
       name: webtrax check
       shell: bash
@@ -66,11 +87,10 @@ runs:
         SUITES: ${{ inputs.suites }}
         ARGS: ${{ inputs.args }}
         SUMMARY: ${{ inputs.summary }}
-        VERSION: ${{ inputs.version }}
-        CLI: ${{ inputs.cli }}
+        CLI: ${{ steps.install.outputs.cli }}
       run: |
         out="$RUNNER_TEMP/webtrax"
-        if [ -n "$CLI" ]; then cmd=(node "$CLI"); else cmd=(npx -y "@webtrax/cli@$VERSION"); fi
+        cmd=(node "$CLI")
         flags=(--fail-on "$FAIL_ON" --max-pages "$MAX_PAGES" --out "$out" --reports html,md,sarif --stdout md)
         [ "$BROWSER" = "true" ] && flags+=(--browser)
         [ -n "$SUITES" ] && flags+=(--suites "$SUITES")
