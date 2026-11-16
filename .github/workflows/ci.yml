@@ -1,6 +1,5 @@
-# CI for the public coldbathcode/webtrax-runner repository. Inactive while the
-# runner lives in the Webtrax monorepo (GitHub only reads the root .github);
-# active once scripts/split-runner.sh has made runner/ the repository root.
+# CI for the public coldbathcode/webtrax-runner repository (mirrored from the
+# Webtrax monorepo, where the same checks run in its own CI).
 name: CI
 on:
   push:
@@ -25,3 +24,19 @@ jobs:
       - run: pnpm run build
       - name: Smoke test the built CLI
         run: node packages/cli/dist/webtrax.js --version && node packages/cli/dist/webtrax.js check https://webtrax.dev --max-pages 5 --fail-on none --quiet
+
+  image:
+    name: Runner image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # For the comparison run outside the image.
+      - run: pnpm --filter @webtrax/net-proxy exec playwright-core install --with-deps chromium
+      - run: scripts/image.sh webtrax-runner:ci
+      - run: scripts/image-test.sh webtrax-runner:ci
