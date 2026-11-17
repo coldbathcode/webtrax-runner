@@ -22,7 +22,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+          # No registry-url: it writes an .npmrc with a placeholder token, and npm
+          # then sends that instead of exchanging the OIDC token (E404 on publish).
       - run: pnpm install --frozen-lockfile
       - name: "Guard: the CLI is public and the tag matches its version"
         run: |
@@ -39,7 +40,7 @@ jobs:
         run: npm install -g npm@^11.5.1 && npm --version
       - name: Publish @webtrax/cli
         working-directory: packages/cli
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --loglevel verbose
       - name: Move the major tag (action@v0, action@v1 …)
         run: |
           major="v${GITHUB_REF_NAME#v}"; major="${major%%.*}"
