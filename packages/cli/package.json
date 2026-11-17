@@ -1,6 +1,6 @@
 {
   "name": "@webtrax/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Check a website for broken links, redirects, security headers, SEO basics, accessibility and performance, from your terminal, your CI or your coding agent (MCP).",
   "license": "Apache-2.0",
   "type": "module",
