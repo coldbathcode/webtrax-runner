@@ -105,6 +105,30 @@ describe('webtrax check', () => {
   })
 })
 
+describe('--header', () => {
+  it('sends the header but never writes its value to the run or a report', async () => {
+    fresh()
+    const t = io()
+    const code = await main(['check', `${fixture.origin}/`, ...FAST, '--max-pages', '3', '--fail-on', 'none', '--reports', 'html,md,json,sarif,junit', '--stdout', 'json', '--header', 'x-vercel-protection-bypass:s3cret-value'], t.io)
+    expect(code).toBe(EXIT.ok)
+    const [run] = runs()
+    const dir = join(cwd, '.webtrax', 'runs', run!)
+    for (const f of readdirSync(dir)) expect(readFileSync(join(dir, f), 'utf8'), f).not.toContain('s3cret-value')
+    expect(t.out()).not.toContain('s3cret-value')
+    expect(readFileSync(join(dir, 'run.ndjson'), 'utf8')).toContain('"x-vercel-protection-bypass":"[redacted]"')
+  })
+
+  it('refuses a malformed header without echoing its value', async () => {
+    fresh()
+    for (const bad of ['no-colon-s3cret-value', 'bad name:s3cret-value', 'x-empty:']) {
+      const t = io()
+      expect(await main(['check', `${fixture.origin}/`, '--header', bad], t.io)).toBe(EXIT.usage)
+      expect(t.err()).toMatch(/--header/)
+      expect(t.err()).not.toContain('s3cret-value')
+    }
+  })
+})
+
 describe('webtrax.yml', () => {
   it('init writes a config that check then uses, and will not overwrite it', async () => {
     fresh()

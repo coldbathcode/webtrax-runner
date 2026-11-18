@@ -88,7 +88,9 @@ describe('politeness', () => {
     const started = Date.now()
     await run()
     const all = [...times.entries()].filter(([k]) => k !== '/' && k !== '/robots.txt').flatMap(([, t]) => t).sort()
-    for (let i = 1; i < all.length; i++) expect(all[i]! - all[i - 1]!, `gap ${i}`).toBeGreaterThanOrEqual(900)
+    // Arrival times at the server: one request delivered late on a busy machine shortens the next gap
+    // (CI saw 813 ms), so the floor is 700 ms; without Crawl-delay these go about 20 ms apart (50 rps).
+    for (let i = 1; i < all.length; i++) expect(all[i]! - all[i - 1]!, `gap ${i}`).toBeGreaterThanOrEqual(700)
     // sitemap.xml, /a and /b go out after robots.txt sets the delay: two full gaps.
     expect(Date.now() - started).toBeGreaterThanOrEqual(1800)
   }, 15_000)
@@ -221,5 +223,45 @@ describe('discovery', () => {
     routes.set('/real', (_q, res) => html(res, ''))
     const { site } = await run()
     expect([...site!.links.keys()].sort()).toEqual([`${origin}/`, `${origin}/real`])
+  })
+})
+
+describe('auth headers (a protected preview)', () => {
+  const port = () => new URL(origin).port
+  const guardedSite = (seen: (string | undefined)[]) => {
+    const gate: Route = (req, res) => {
+      seen.push(req.headers['x-vercel-protection-bypass'] as string | undefined)
+      if (req.headers['x-vercel-protection-bypass'] !== 'k3y') return html(res, 'protected', 401)
+      return html(res, links('/a', `http://localhost:${port()}/ext`))
+    }
+    routes.set('/', gate)
+    routes.set('/a', gate)
+  }
+
+  it('reaches a protected site with them, and sends them to no other host', async () => {
+    reset()
+    const seen: (string | undefined)[] = []
+    const external: (string | undefined)[] = []
+    guardedSite(seen)
+    routes.set('/ext', (req, res) => { external.push(req.headers['x-vercel-protection-bypass'] as string | undefined); html(res, '') })
+    const { summary, site } = await run({ auth: { headers: { 'X-Vercel-Protection-Bypass': 'k3y' } } })
+    expect(summary.status).toBe('completed')
+    expect([...site!.pages.values()].map((p) => p.status)).toEqual([200, 200])
+    expect(seen.every((v) => v === 'k3y')).toBe(true)
+    // The external link was checked, without the header.
+    expect(external.length).toBeGreaterThan(0)
+    expect(external.every((v) => v === undefined)).toBe(true)
+  })
+
+  it('without them, the protected site is unreachable', async () => {
+    reset()
+    guardedSite([])
+    const { summary } = await run()
+    expect(summary).toMatchObject({ status: 'failed', error: 'start_url_unreachable' })
+  })
+
+  it('refuses unresolved secret references and header injection', async () => {
+    await expect(run({ auth: { headers: { 'x-a': { ref: 'vault:x' } } } })).rejects.toThrow(/resolved/)
+    await expect(run({ auth: { headers: { 'x-a': 'v\r\nx-b: 1' } } })).rejects.toThrow(/invalid/)
   })
 })

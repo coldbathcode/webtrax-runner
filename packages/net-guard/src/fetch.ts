@@ -9,8 +9,11 @@
  * - Redirects are followed by hand, one hop at a time, and every hop is
  *   checked the same way. The chain is returned, because the crawler reports
  *   it (PageRecord.redirect_chain).
+ * - `originHeaders` (a protected preview's bypass header, say) go only to
+ *   that origin: added on each hop that is on it, never on a hop a redirect
+ *   took elsewhere.
  */
-import { Agent, fetch as undiciFetch, type RequestInit, type Response } from 'undici'
+import { Agent, fetch as undiciFetch, Headers, type RequestInit, type Response } from 'undici'
 import { createGuardedLookup, type LookupFunction } from './lookup'
 import { assertAllowed, ScopeDeniedError, ScopePolicy, type ScopePolicyConfig } from './policy'
 
@@ -25,6 +28,11 @@ export interface GuardedFetchOptions {
 }
 
 export interface RedirectHop { url: string; status: number }
+
+export interface GuardedRequestInit extends RequestInit {
+  /** Headers sent only to `origin` (scheme, host and port), on every hop that is on it, and on no other. */
+  originHeaders?: { origin: string; headers: Record<string, string> }
+}
 
 export interface FetchResult {
   response: Response
@@ -57,7 +65,7 @@ async function fetchHop(url: string, init: RequestInit): Promise<Response> {
 
 export interface GuardedFetch {
   /** Fetches `url`, following redirects unless `init.redirect` is `'manual'`. */
-  (url: string, init?: RequestInit): Promise<FetchResult>
+  (url: string, init?: GuardedRequestInit): Promise<FetchResult>
   readonly policy: ScopePolicy
   /** Closes pooled connections. */
   close(): Promise<void>
@@ -70,7 +78,7 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
     connect: { lookup: createGuardedLookup(policy, options.lookup), timeout: options.connectTimeoutMs ?? 10_000 },
   })
 
-  const guarded = async (url: string, init: RequestInit = {}): Promise<FetchResult> => {
+  const guarded = async (url: string, { originHeaders, ...init }: GuardedRequestInit = {}): Promise<FetchResult> => {
     assertAllowed(policy.checkUrl(url))
     let current = new URL(url).toString()
     let method = (init.method ?? 'GET').toUpperCase()
@@ -78,6 +86,11 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
     const chain: RedirectHop[] = []
     for (;;) {
       const hopInit: RequestInit = { ...init, method, dispatcher, redirect: 'manual' }
+      if (originHeaders && new URL(current).origin === originHeaders.origin) {
+        const headers = new Headers(init.headers ?? {})
+        for (const [k, v] of Object.entries(originHeaders.headers)) headers.set(k, v)
+        hopInit.headers = headers
+      }
       if (body === undefined) delete hopInit.body
       else hopInit.body = body
       const response = await fetchHop(current, hopInit)

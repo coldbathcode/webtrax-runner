@@ -90,6 +90,8 @@ export interface CheckFlags {
   allowPrivate?: boolean
   ignoreRobots?: boolean
   noExternal?: boolean
+  /** Sent to the target's origin only (`auth.headers`). */
+  headers?: Record<string, string>
 }
 
 /** Adds a scheme when the user typed a bare host (`webtrax check example.com`). */
@@ -131,8 +133,25 @@ export function buildSpec(config: Config, flags: CheckFlags, jobId: string): Job
       time_budget_s: flags.timeBudget ?? limits.time_budget_s ?? 600,
     },
     suites: Object.fromEntries(suites.map((s) => [s, { enabled: true }])),
+    ...(flags.headers && Object.keys(flags.headers).length ? { auth: { headers: flags.headers } } : {}),
     labels: { source: 'cli' },
   }
+}
+
+/** `--header name:value` (or `name: value`), repeatable. */
+export function parseHeaders(values: string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const v of values) {
+    // Errors name the header at most, never its value (it is often a secret).
+    const i = v.indexOf(':')
+    if (i <= 0) throw new ConfigError('--header takes name:value')
+    const name = v.slice(0, i).trim()
+    const value = v.slice(i + 1).trim()
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) throw new ConfigError('--header: the name has characters a header name cannot have')
+    if (!value || /[\r\n\0]/.test(value)) throw new ConfigError(`--header ${name}: the value is empty or has a line break`)
+    out[name.toLowerCase()] = value
+  }
+  return out
 }
 
 export function parseFailOn(value: string): FailOn {

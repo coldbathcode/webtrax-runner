@@ -16,7 +16,7 @@ import { atLeast, BOT_USER_AGENT } from '@webtrax/protocol'
 import { buildReport, renderConsole, renderHtml, renderJson, renderJunit, renderMarkdown, renderSarif, shortId } from '@webtrax/reporters'
 import { serveMcp } from './mcp'
 import { listRuns, readRun as readRunAt, RULES, runsDir, SUITES } from './runs'
-import { buildSpec, CONFIG_FILE, ConfigError, configTemplate, loadConfig, normaliseTarget, parseFailOn, parseSuites, type FailOn } from './config'
+import { buildSpec, CONFIG_FILE, ConfigError, configTemplate, loadConfig, normaliseTarget, parseFailOn, parseHeaders, parseSuites, type FailOn } from './config'
 
 export const VERSION = typeof __WEBTRAX_VERSION__ === 'string' ? __WEBTRAX_VERSION__ : '0.0.0-dev'
 declare const __WEBTRAX_VERSION__: string | undefined
@@ -62,6 +62,8 @@ Options for check
   --concurrency <n>      parallel requests (default 4)
   --time-budget <s>      stop after this many seconds and report what was found (default 600)
   --ignore <rules>       rule ids to leave out of reports and the exit code, e.g. seo.noindex
+  --header <name:value>  send a header to the site itself (never to other hosts), e.g. a protected
+                         preview's x-vercel-protection-bypass:<secret>; repeatable; never written to reports
 
 Exit codes: 0 ok, 1 findings at or above --fail-on, 2 usage or config error, 3 site unreachable.
 The crawler identifies itself as ${BOT_USER_AGENT}.
@@ -108,6 +110,7 @@ async function check(args: string[], io: Io): Promise<number> {
       'fail-on': { type: 'string' }, reports: { type: 'string' }, out: { type: 'string' }, stdout: { type: 'string' }, quiet: { type: 'boolean' },
       'allow-private': { type: 'boolean' }, 'ignore-robots': { type: 'boolean' }, 'no-external': { type: 'boolean' }, rps: { type: 'string' },
       concurrency: { type: 'string' }, 'time-budget': { type: 'string' }, ignore: { type: 'string' }, browser: { type: 'boolean' },
+      header: { type: 'string', multiple: true },
     },
   })
   if (positionals.length > 1) throw new ConfigError('check takes one URL')
@@ -134,6 +137,7 @@ async function check(args: string[], io: Io): Promise<number> {
     allowPrivate: values['allow-private'] ?? false,
     ignoreRobots: values['ignore-robots'] ?? false,
     noExternal: values['no-external'] ?? false,
+    ...(values.header?.length ? { headers: parseHeaders(values.header) } : {}),
   }, jobId)
 
   const local = new LocalSink(io.cwd, startedAt, values.out ? join(resolve(io.cwd, values.out), 'runs') : undefined)

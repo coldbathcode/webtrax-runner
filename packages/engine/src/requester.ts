@@ -44,6 +44,8 @@ export interface RequesterOptions {
   rateLimitAttempts: number
   maxRedirects?: number
   onRateLimited?: (host: string) => void
+  /** The job's auth headers, for the target's own origin only (net-guard drops them on any other hop). */
+  originHeaders?: { origin: string; headers: Record<string, string> }
 }
 
 /** Statuses after HEAD that are worth confirming with GET: some servers and CDNs mishandle HEAD. */
@@ -78,7 +80,7 @@ export function createRequester(o: RequesterOptions) {
     await o.throttle.wait(new URL(url).host, o.rps, o.signal)
     const signal = AbortSignal.any([o.signal, AbortSignal.timeout(o.timeoutMs)])
     try {
-      const { response, url: finalUrl, chain } = await o.fetch(url, { method: x.method, headers: headers(x.referer), signal, ...(x.manual ? { redirect: 'manual' as const } : {}) })
+      const { response, url: finalUrl, chain } = await o.fetch(url, { method: x.method, headers: headers(x.referer), signal, ...(x.manual ? { redirect: 'manual' as const } : {}), ...(o.originHeaders ? { originHeaders: o.originHeaders } : {}) })
       const ttfb = o.clock.now() - started
       const contentType = response.headers.get('content-type') ?? undefined
       const base = {

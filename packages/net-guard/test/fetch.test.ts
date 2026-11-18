@@ -40,6 +40,11 @@ beforeAll(async () => {
       case '/post303': return go(303, '/method')
       case '/post307': return go(307, '/method')
       case '/method': res.writeHead(200); return res.end(req.method)
+      case '/echo-bypass': res.writeHead(200); return res.end(String(req.headers['x-bypass'] ?? ''))
+      case '/to-echo': return go(302, '/echo-bypass')
+      case '/to-other-echo': return go(302, `http://other.test:${port}/echo-bypass`)
+      case '/to-other-back': return go(302, `http://other.test:${port}/to-site-echo`)
+      case '/to-site-echo': return go(302, `${origin}/echo-bypass`)
       case '/big': res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('x'.repeat(3 * 1024 * 1024))
       case '/bomb': res.writeHead(200, { 'Content-Encoding': 'gzip', 'Content-Type': 'text/html' }); return res.end(gzipSync(Buffer.alloc(10 * 1024 * 1024)))
       default: res.writeHead(404); return res.end('nope')
@@ -172,5 +177,27 @@ describe('body caps (COR-11)', () => {
     const { bytes, truncated } = await readBodyCapped((await guarded(`${origin}/bomb`)).response, 1024 * 1024)
     expect(truncated).toBe(true)
     expect(bytes.byteLength).toBe(1024 * 1024)
+  })
+})
+
+describe('origin headers', () => {
+  const guarded = createGuardedFetch({ policy: SITE_ALLOWED, lookup: dnsMap({ 'site.test': v4('127.0.0.1'), 'other.test': v4('127.0.0.1') }) })
+  afterAll(() => guarded.close())
+  const bypass = () => ({ originHeaders: { origin, headers: { 'x-bypass': 's3cret' } } })
+
+  it('sends them to their origin, also after a redirect within it', async () => {
+    expect(await (await guarded(`${origin}/echo-bypass`, bypass())).response.text()).toBe('s3cret')
+    expect(await (await guarded(`${origin}/to-echo`, bypass())).response.text()).toBe('s3cret')
+  })
+
+  it('never sends them to another host, even one a redirect leads to', async () => {
+    expect(await (await guarded(`${origin}/to-other-echo`, bypass())).response.text()).toBe('')
+    expect(await (await guarded(`http://other.test:${port}/echo-bypass`, bypass())).response.text()).toBe('')
+    // Back on the origin after a detour: sent again.
+    expect(await (await guarded(`${origin}/to-other-back`, bypass())).response.text()).toBe('s3cret')
+  })
+
+  it('leaves other requests alone', async () => {
+    expect(await (await guarded(`${origin}/echo-bypass`)).response.text()).toBe('')
   })
 })

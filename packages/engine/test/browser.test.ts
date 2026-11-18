@@ -48,3 +48,39 @@ describe('browser stage', () => {
     expect(r.site!.browser).toBeUndefined()
   })
 })
+
+describe('browser stage with auth headers (a protected preview)', () => {
+  it('loads protected pages with them, and sends them to no other origin', async () => {
+    const thirdParty: (string | undefined)[] = []
+    // Another origin (another port): a third party as far as origins go.
+    const other = http.createServer((req, res) => {
+      thirdParty.push(req.headers['x-vercel-protection-bypass'] as string | undefined)
+      res.writeHead(200, { 'content-type': 'image/gif' }).end(Buffer.from('R0lGODlhAQABAAAAACw=', 'base64'))
+    })
+    await new Promise<void>((r) => other.listen(0, '127.0.0.1', r))
+    const otherOrigin = `http://127.0.0.1:${(other.address() as AddressInfo).port}`
+    let port = 0
+    const locked = http.createServer((req, res) => {
+      if (req.headers['x-vercel-protection-bypass'] !== 'k3y') { res.writeHead(401, { 'content-type': 'text/html' }).end('<!doctype html><title>Locked</title>'); return }
+      res.writeHead(200, { 'content-type': 'text/html' })
+      res.end(`<!doctype html><html lang="en"><title>Open</title><body><img src="${otherOrigin}/pixel.gif" alt=""></body></html>`)
+    })
+    await new Promise<void>((r) => locked.listen(0, '127.0.0.1', r))
+    port = (locked.address() as AddressInfo).port
+    try {
+      const seen: { title: string; status: number | null }[] = []
+      const suite: CheckSuite = {
+        id: 'performance', version: '1', requires: ['http', 'browser'], rules: [rule], defaultSample: 1,
+        async onBrowserPage(_ctx, bp) { seen.push({ title: await bp.page.title(), status: bp.status }) },
+      }
+      await crawl({ spec_version: 1, job_id: 'p', target: { start_url: `http://127.0.0.1:${port}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 }, suites: { performance: { enabled: true } }, auth: { headers: { 'x-vercel-protection-bypass': 'k3y' } } },
+        { sink: new MemorySink(), throttle: new HostThrottle(), suites: [suite] })
+      expect(seen).toEqual([{ title: 'Open', status: 200 }])
+      expect(thirdParty.length).toBeGreaterThan(0)
+      expect(thirdParty.every((v) => v === undefined)).toBe(true)
+    } finally {
+      await new Promise<void>((r) => locked.close(() => r()))
+      await new Promise<void>((r) => other.close(() => r()))
+    }
+  }, 90_000)
+})

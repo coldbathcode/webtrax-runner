@@ -169,6 +169,35 @@ function pathMatcher(patterns: readonly string[]): (url: string) => boolean {
   }
 }
 
+/**
+ * The job's `auth.headers` (a protected preview's bypass header, say), for the
+ * start URL's origin only. Values must be plain strings here: a secret
+ * reference is resolved by whoever builds the spec.
+ */
+/** The spec as the run record keeps it: auth values never reach run.ndjson or a report. */
+export function redactAuth(spec: JobSpec): JobSpec {
+  if (!spec.auth) return spec
+  const hide = <T>(o: Record<string, T> | undefined) => (o ? Object.fromEntries(Object.keys(o).map((k) => [k, '[redacted]'])) : undefined)
+  const auth = {
+    ...(spec.auth.headers ? { headers: hide(spec.auth.headers)! } : {}),
+    ...(spec.auth.basic ? { basic: { username: spec.auth.basic.username, password: '[redacted]' } } : {}),
+    ...(spec.auth.cookies ? { cookies: spec.auth.cookies.map((c) => ({ ...c, value: '[redacted]' })) } : {}),
+  }
+  return { ...spec, auth }
+}
+
+export function authHeaders(spec: JobSpec): { origin: string; headers: Record<string, string> } | undefined {
+  const given = spec.auth?.headers
+  if (!given || !Object.keys(given).length) return undefined
+  const headers: Record<string, string> = {}
+  for (const [name, value] of Object.entries(given)) {
+    if (typeof value !== 'string') throw new Error(`auth header ${name}: secret references must be resolved before the crawl`)
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n\0]/.test(value)) throw new Error(`auth header ${name}: invalid name or value`)
+    headers[name.toLowerCase()] = value
+  }
+  return { origin: new URL(spec.target.start_url).origin, headers }
+}
+
 export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<CrawlResult> {
   const spec = JobSpec.parse(input)
   const opts = { ...ENGINE_DEFAULTS, ...deps.options }
@@ -197,14 +226,16 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     drainTimer = setTimeout(() => internal.abort(), opts.drainMs)
   }, opts.timeBudgetMs ?? spec.limits.time_budget_s * 1000)
 
+  const originHeaders = authHeaders(spec)
   const requester: Requester = createRequester({
     fetch, throttle: deps.throttle ?? sharedThrottle, clock, userAgent, rps: spec.limits.per_host_rps, signal: internal.signal,
     timeoutMs: opts.requestTimeoutMs, retryDelayMs: opts.retryDelayMs, maxBodyBytes: opts.maxHtmlBytes, rateLimitAttempts: opts.rateLimitAttempts,
     onRateLimited: (host) => (deps.throttle ?? sharedThrottle).penalise(host),
+    ...(originHeaders ? { originHeaders } : {}),
   })
 
   const write = async (record: RunLine) => sink.write(record)
-  await write({ type: 'run', protocol_version: PROTOCOL_VERSION, job_id: spec.job_id, started_at: startedAt, runner: deps.runner ?? { name: '@webtrax/engine', version: '0.0.0' }, user_agent: userAgent, spec })
+  await write({ type: 'run', protocol_version: PROTOCOL_VERSION, job_id: spec.job_id, started_at: startedAt, runner: deps.runner ?? { name: '@webtrax/engine', version: '0.0.0' }, user_agent: userAgent, spec: redactAuth(spec) })
 
   // Suites: those the spec enables, with their rules validated up front.
   const findings: FindingRecord[] = []
@@ -484,6 +515,10 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
         await (deps.throttle ?? sharedThrottle).wait(new URL(url).host, spec.limits.per_host_rps, internal.signal)
         const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false, userAgent, viewport: { width: 1350, height: 940 } })
         try {
+          // Auth headers on the target's own requests only, never on third-party ones.
+          if (originHeaders) {
+            await context.route((u) => u.origin === originHeaders.origin, (route) => route.continue({ headers: { ...route.request().headers(), ...originHeaders.headers } }))
+          }
           const page = await context.newPage()
           const started = clock.now()
           const response = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).catch(() => null)
