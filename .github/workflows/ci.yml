@@ -25,6 +25,46 @@ jobs:
       - name: Smoke test the built CLI
         run: node packages/cli/dist/webtrax.js --version && node packages/cli/dist/webtrax.js check https://webtrax.dev --max-pages 5 --fail-on none --quiet
 
+  # The GitHub Action (action/), against the fixture site with the CLI built here.
+  # (The monorepo's CI runs on Woodpecker, which cannot run Actions, so this lives here.)
+  action:
+    name: GitHub Action
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Start the fixture site
+        run: |
+          node fixtures/site/serve.mjs > "$RUNNER_TEMP/fixture-origin" &
+          for i in $(seq 1 20); do [ -s "$RUNNER_TEMP/fixture-origin" ] && break; sleep 0.5; done
+          echo "FIXTURE_ORIGIN=$(head -1 "$RUNNER_TEMP/fixture-origin")" >> "$GITHUB_ENV"
+      - name: Webtrax action (test)
+        id: webtrax
+        uses: ./action
+        continue-on-error: true
+        with:
+          url: ${{ env.FIXTURE_ORIGIN }}/
+          cli: packages/cli/dist/webtrax.js
+          fail-on: high
+          summary: 'false'
+      - name: Check the action's outcome
+        env:
+          CODE: ${{ steps.webtrax.outputs.exit-code }}
+          SARIF: ${{ steps.webtrax.outputs.sarif-file }}
+          OUTCOME: ${{ steps.webtrax.outcome }}
+        run: |
+          # The fixture has high findings (broken internal links): exit 1, step failed, SARIF written.
+          test "$CODE" = "1" || { echo "expected exit code 1, got $CODE"; exit 1; }
+          test "$OUTCOME" = "failure" || { echo "expected the step to fail, got $OUTCOME"; exit 1; }
+          node -e 'const s = JSON.parse(require("fs").readFileSync(process.env.SARIF, "utf8")); if (s.version !== "2.1.0" || !s.runs[0].results.length) process.exit(1)'
+          echo "action ok: exit $CODE, SARIF with results"
+
   image:
     name: Runner image
     runs-on: ubuntu-24.04
