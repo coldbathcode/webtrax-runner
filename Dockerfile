@@ -8,7 +8,9 @@
 # about a fifth of that). The browser is installed by the CLI's own
 # playwright-core, so the two always match (COR-04). scripts/image-test.sh
 # proves the result (non-root, read-only root filesystem, same findings as
-# outside).
+# outside). npm and corepack are removed once the CLI is installed: the runner
+# never uses them, and the npm bundled with Node is where Trivy finds
+# vulnerabilities (C05.11).
 FROM node:22-bookworm-slim
 
 LABEL org.opencontainers.image.title="Webtrax runner" \
@@ -28,6 +30,8 @@ RUN npm install -g --omit=dev --no-audit /tmp/webtrax-cli.tgz \
  && node "$pw" install --with-deps --only-shell chromium \
  && rm -rf /var/lib/apt/lists/* /root/.cache /tmp/* \
  && npm cache clean --force \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /root/.npm \
  && useradd --create-home --uid 1001 webtrax
 
 USER webtrax
