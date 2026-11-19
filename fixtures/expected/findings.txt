@@ -23,3 +23,10 @@ seo.meta_description.missing low /blog/post-1 <- -
 seo.meta_description.missing low /blog/post-2 <- -
 seo.meta_description.missing low /orphan <- -
 seo.meta_description.missing low /orphan-child <- -
+seo.social.og_missing low / <- -
+seo.social.og_missing low /about <- -
+seo.social.og_missing low /blog <- -
+seo.social.og_missing low /blog/post-1 <- -
+seo.social.og_missing low /blog/post-2 <- -
+seo.social.og_missing low /orphan <- -
+seo.social.og_missing low /orphan-child <- -
