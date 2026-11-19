@@ -7,9 +7,10 @@ import { linksSuite } from '@webtrax/suite-links'
 import { performanceSuite } from '@webtrax/suite-performance'
 import { securitySuite } from '@webtrax/suite-security'
 import { seoSuite } from '@webtrax/suite-seo'
+import { aiSuite } from '@webtrax/suite-ai'
 import { ConfigError } from './config'
 
-export const SUITES = [linksSuite, securitySuite, seoSuite, a11ySuite, performanceSuite]
+export const SUITES = [linksSuite, securitySuite, seoSuite, aiSuite, a11ySuite, performanceSuite]
 export const RULES: RuleMeta[] = SUITES.flatMap((s) => s.rules)
 
 export const runsDir = (root: string) => join(root, '.webtrax', 'runs')

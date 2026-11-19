@@ -8,7 +8,7 @@ function setup() {
   const emitted: FindingInput[] = []
   const ctx: SuiteCtx = {
     spec: JobSpec.parse({ spec_version: 1, job_id: 'x', target: { start_url: `${O}/` } }), config: {}, origin: O, startUrl: `${O}/`, requestedStartUrl: `${O}/`,
-    emit: async (f) => { emitted.push(f) }, metric: async () => {}, request: async () => { throw new Error('no fetching') },
+    emit: async (f) => { emitted.push(f) }, metric: async () => {}, request: async () => { throw new Error('no fetching') }, text: async () => { throw new Error('no fetching') },
   }
   return { ctx, emitted, ids: () => emitted.map((f) => f.rule_id).sort() }
 }

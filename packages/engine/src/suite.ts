@@ -46,6 +46,8 @@ export interface SuiteCtx {
   metric(name: string, value: number, unit: string, url: string): Promise<void>
   /** One guarded GET that does not follow redirects (for checks such as HTTP → HTTPS). */
   request(url: string): Promise<Outcome>
+  /** One guarded GET that follows redirects and reads the body whatever its type (robots.txt, llms.txt), at most `maxBytes` (default 256 KB). */
+  text(url: string, maxBytes?: number): Promise<Outcome>
 }
 
 /** A page loaded once in Chromium (through the egress proxy), shared by every browser suite. */

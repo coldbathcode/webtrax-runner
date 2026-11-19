@@ -34,7 +34,7 @@ export interface Io {
   signal?: AbortSignal
 }
 
-export const HELP = `webtrax ${VERSION}: check a website for broken links, redirects, security headers and SEO basics
+export const HELP = `webtrax ${VERSION}: check a website for broken links, redirects, security headers, SEO basics and AI readiness
 
 Usage
   webtrax check [url] [options]   crawl a site and report what is broken
@@ -48,7 +48,7 @@ Options for check
   --config <file>        config file (default: ./webtrax.yml if present)
   --max-pages <n>        pages to crawl (default 300)
   --max-depth <n>        link depth from the start page (default 10)
-  --suites <list>        links,security,seo,a11y,performance (default: links,security,seo)
+  --suites <list>        links,security,seo,ai_readiness,a11y,performance (default: links,security,seo,ai_readiness)
   --browser              also run the browser suites (a11y, performance); needs Chromium or Chrome
   --fail-on <severity>   exit 1 at this severity or worse: critical, high, medium, low, info, none (default high)
   --reports <list>       report files to write: html,md,json,sarif,junit (default html,md)

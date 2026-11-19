@@ -59,7 +59,7 @@ const compact = (f: FindingGroup) => ({
 
 export function createMcpServer(o: McpOptions): McpServer {
   const server = new McpServer({ name: 'webtrax', version: o.version }, {
-    instructions: `Webtrax checks websites for broken links, redirects, security headers and SEO basics. ${o.allowPublic ? 'Public sites are allowed (capped at 500 pages, 2 requests/s per host).' : 'Only local targets are allowed (localhost, *.local, private IPs): use it on your dev server before you commit.'} ${UNTRUSTED_NOTE}`,
+    instructions: `Webtrax checks websites for broken links, redirects, security headers, SEO basics and AI readiness (llms.txt, AI crawlers in robots.txt, structured data). ${o.allowPublic ? 'Public sites are allowed (capped at 500 pages, 2 requests/s per host).' : 'Only local targets are allowed (localhost, *.local, private IPs): use it on your dev server before you commit.'} ${UNTRUSTED_NOTE}`,
   })
   const active = new Map<string, ActiveRun>()
 

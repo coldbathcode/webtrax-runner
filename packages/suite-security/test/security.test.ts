@@ -15,6 +15,7 @@ function setup(start: string, httpAnswer: Partial<Outcome> = { status: 301, fina
     spec: JobSpec.parse({ spec_version: 1, job_id: 'x', target: { start_url: start } }), config: {}, origin: new URL(start).origin, startUrl: start, requestedStartUrl: start,
     emit: async (f) => { emitted.push(f) }, metric: async () => {},
     request: async (url) => { requested.push(url); return { url, finalUrl: url, status: null, chain: [], timing: { ttfb: 0, total: 0 }, requests: 1, ...httpAnswer } },
+    text: async () => { throw new Error('security suite reads no text') },
   }
   const page = (url: string, headers: Record<string, string>, html = '<p>x</p>'): CrawledPage => ({
     url, depth: 0, doc: parseHtml(html, url), outcome: { url, finalUrl: url, status: 200, chain: [], headers, timing: { ttfb: 1, total: 1 }, requests: 1 },

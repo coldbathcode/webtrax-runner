@@ -334,6 +334,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const ctxFor = (suite: CheckSuite): SuiteCtx => ({
     spec, config: spec.suites[suite.id]?.config ?? {}, origin, startUrl, requestedStartUrl: spec.target.start_url, emit: emitFor(suite),
     request: (url) => requester.page(url, undefined, () => true),
+    text: (url, maxBytes = 256 * 1024) => requester.text(url, maxBytes),
     metric: async (name, value, unit, url) => write({ type: 'metric', name, value, unit, url: normaliseUrl(url) ?? url, device: 'desktop' }),
   })
   const contexts = new Map(active.map((suite) => [suite, ctxFor(suite)]))

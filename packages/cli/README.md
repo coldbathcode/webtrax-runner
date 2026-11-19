@@ -1,6 +1,6 @@
 # @webtrax/cli
 
-Check a website for broken links, redirect problems, security headers, SEO basics, accessibility and performance, from your terminal, your CI or your coding agent.
+Check a website for broken links, redirect problems, security headers, SEO basics, AI readiness (llms.txt, AI crawlers in robots.txt, structured data), accessibility and performance, from your terminal, your CI or your coding agent.
 
 ```bash
 npx @webtrax/cli check https://your-site.example

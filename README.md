@@ -25,6 +25,7 @@ Node.js 22.19+ and pnpm 10. `pnpm install`, then `pnpm run check` (typecheck, li
 | `@webtrax/net-proxy` | Egress proxy for the browser stage: Chromium reaches the network only through the scope policy | Built (C05.10) |
 | `@webtrax/engine` | Crawl engine: one fetch per URL, robots.txt, sitemaps, per-host politeness, 429 handling, time budget and cancellation | Built (C05.3) |
 | `@webtrax/suite-links`, `@webtrax/suite-security`, `@webtrax/suite-seo` | Check suites: broken links, redirects, sitemaps and canonicals; passive security (HTTPS, headers, CSP, mixed content); SEO basics | Built (C05.4) |
+| `@webtrax/suite-ai` | AI readiness: llms.txt, AI crawler access in robots.txt (search crawler versus user agent per vendor), structured data that does not parse or is missing | Built (C06.6, first slice) |
 | `@webtrax/reporters` | Console, JSON/NDJSON, Markdown (for PRs and LLMs), single-file accessible HTML | Built (C05.5) |
 | `@webtrax/cli` | `webtrax check`, `init`, `diff`, `explain`, `doctor`, and `webtrax mcp` (local MCP server for coding agents) | Built (C05.6, C05.7) |
 
