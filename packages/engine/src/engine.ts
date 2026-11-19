@@ -292,7 +292,10 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     return finish({ status: 'failed', error: 'start_url_redirects_offsite', pages: { crawled: 0, failed: 0 }, links: { checked: 0, broken: 0 } }, null)
   }
   if (start.error || start.status === null || start.status >= 400) {
-    return finish({ status: 'failed', error: 'start_url_unreachable', pages: { crawled: 0, failed: 1 }, links: { checked: 0, broken: 0 } }, null)
+    return finish({
+      status: 'failed', error: 'start_url_unreachable', start: { status: start.status, ...(start.error ? { error: start.error } : {}) },
+      pages: { crawled: 0, failed: 1 }, links: { checked: 0, broken: 0 },
+    }, null)
   }
   const origin = new URL(start.finalUrl).origin
   const startUrl = normaliseUrl(start.finalUrl) ?? start.finalUrl

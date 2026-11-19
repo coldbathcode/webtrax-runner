@@ -173,7 +173,7 @@ async function check(args: string[], io: Io): Promise<number> {
   for (const e of result.suiteErrors) io.stderr(`webtrax: suite ${e.suite} failed on ${e.url ?? 'site'}: ${e.message}\n`)
 
   if (result.summary.status === 'failed') {
-    if (!values.quiet) io.stderr(`webtrax: could not crawl ${spec.target.start_url} (${(result.summary.error ?? 'error').replace(/_/g, ' ')})\n`)
+    if (!values.quiet) io.stderr(`webtrax: could not crawl ${spec.target.start_url} (${failureReason(result.summary)})\n`)
     return EXIT.unreachable
   }
   if (failOn !== 'none' && report.findings.some((f) => atLeast(f.severity, failOn))) return EXIT.findings
@@ -275,4 +275,13 @@ async function mcp(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { 'allow-public': { type: 'boolean' } } })
   await serveMcp({ root: io.cwd, allowPublic: values['allow-public'] ?? false, version: VERSION })
   return EXIT.ok
+}
+
+/** Why a run failed, for the terminal: the start page's status or fetch error when known. */
+export function failureReason(summary: { error?: string | undefined; start?: { status: number | null; error?: string | undefined } | undefined }): string {
+  const what = (summary.error ?? 'error').replace(/_/g, ' ')
+  const start = summary.start
+  if (!start) return what
+  if (start.status !== null) return `${what}: HTTP ${start.status}${start.status === 401 || start.status === 403 ? ', a firewall or login may be blocking WebtraxBot' : ''}`
+  return start.error ? `${what}: ${start.error.replace(/_/g, ' ')}` : what
 }

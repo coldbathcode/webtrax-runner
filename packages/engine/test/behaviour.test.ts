@@ -51,7 +51,23 @@ describe('start URL', () => {
     reset()
     routes.set('/', (_q, res) => html(res, 'down', 503))
     const { summary } = await run()
-    expect(summary).toMatchObject({ status: 'failed', error: 'start_url_unreachable' })
+    expect(summary).toMatchObject({ status: 'failed', error: 'start_url_unreachable', start: { status: 503 } })
+  })
+
+  it('says why the start URL failed: its status, or the fetch error when nothing answered', async () => {
+    reset()
+    routes.set('/', (_q, res) => html(res, 'no', 403))
+    expect((await run()).summary.start).toEqual({ status: 403 })
+    // A port nothing listens on: no response at all.
+    const closed = await crawl(
+      { spec_version: 1, job_id: 't', target: { start_url: 'http://127.0.0.1:9/' }, scope: { allow_private: true }, limits: { per_host_rps: 50 } },
+      { sink: new MemorySink(), throttle: new HostThrottle(), options: { retryDelayMs: 5 } },
+    )
+    expect(closed.summary).toMatchObject({ status: 'failed', error: 'start_url_unreachable', start: { status: null, error: 'connection_error' } })
+    // A run that succeeds has no start record.
+    reset()
+    routes.set('/', (_q, res) => html(res, '<title>ok</title>'))
+    expect((await run()).summary.start).toBeUndefined()
   })
 
   it('fails the run when the start URL redirects to another site', async () => {

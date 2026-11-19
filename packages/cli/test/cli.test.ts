@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startFixtureSite } from '../../../fixtures/site/server.mjs'
-import { EXIT, main, VERSION, type Io } from '../src/main'
+import { EXIT, failureReason, main, VERSION, type Io } from '../src/main'
 
 let fixture: Awaited<ReturnType<typeof startFixtureSite>>
 let cwd: string
@@ -91,6 +91,13 @@ describe('webtrax check', () => {
     fresh()
     const t = io()
     expect(await main(['check', 'http://127.0.0.1:1/', '--quiet'], t.io)).toBe(EXIT.unreachable)
+  })
+
+  it('says why: the start page status, or the fetch error', () => {
+    expect(failureReason({ error: 'start_url_unreachable', start: { status: 503 } })).toBe('start url unreachable: HTTP 503')
+    expect(failureReason({ error: 'start_url_unreachable', start: { status: 403 } })).toMatch(/HTTP 403, a firewall or login may be blocking WebtraxBot/)
+    expect(failureReason({ error: 'start_url_unreachable', start: { status: null, error: 'connection_error' } })).toBe('start url unreachable: connection error')
+    expect(failureReason({ error: 'start_url_redirects_offsite' })).toBe('start url redirects offsite')
   })
 
   it('exits 2 on usage and config errors', async () => {

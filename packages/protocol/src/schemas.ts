@@ -210,6 +210,12 @@ export const SummaryRecord = z.object({
   job_id: z.string(),
   status: z.enum(RUN_STATUSES),
   error: z.enum(RUN_ERRORS).optional(),
+  /**
+   * The start page's response, set when the run failed on it
+   * (`start_url_unreachable`): its HTTP status, or null with the fetch error
+   * when no response arrived. Lets a report say "returned 403" or "timed out".
+   */
+  start: z.object({ status: z.int().min(100).max(599).nullable(), error: z.enum(FETCH_ERRORS).optional() }).optional(),
   /** Set when `status` is `partial`. */
   stop_reason: z.enum(STOP_REASONS).optional(),
   started_at: IsoDateTime,

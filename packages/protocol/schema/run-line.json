@@ -946,6 +946,41 @@
             "internal"
           ]
         },
+        "start": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error": {
+              "type": "string",
+              "enum": [
+                "timeout",
+                "dns_error",
+                "connection_error",
+                "tls_error",
+                "blocked_by_scope",
+                "robots_disallowed",
+                "too_large",
+                "rate_limited",
+                "invalid_url"
+              ]
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        },
         "stop_reason": {
           "type": "string",
           "enum": [
