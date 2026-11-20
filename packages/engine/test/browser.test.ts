@@ -40,7 +40,7 @@ describe('browser stage', () => {
     expect(sink.of('metric').map((m) => m.name)).toEqual(['load_ms', 'load_ms', 'load_ms'])
     expect(r.site!.browser!.pages).toBe(3)
     expect(r.site!.browser!.refused.map((x) => x.reason)).toContain('metadata')
-    expect(r.summary.suites).toEqual([{ id: 'performance', version: '1', requires: ['http', 'browser'] }])
+    expect(r.summary.suites).toEqual([{ id: 'performance', version: '1', requires: ['http', 'browser'], pages: { desktop: 3 } }])
   }, 90_000)
 
   it('hands the start page to onHomePage: alone it loads that page only and keeps optional hooks out; with a suite it comes after the suite', async () => {
@@ -95,8 +95,10 @@ describe('browser stage', () => {
     expect(sink.of('metric').map((m) => `${m.profile} ${m.device} ${m.url.replace(origin, '')}`)).toEqual(['desktop desktop /', 'desktop desktop /a', 'desktop desktop /b', 'phone mobile /', 'phone mobile /a'])
     // One finding per problem, whatever the number of profiles: the worst severity, and where it was seen.
     const at = (path: string) => r.findings.filter((f) => f.url === `${origin}${path}`).map((f) => [f.severity, f.evidence])
-    expect(at('/')).toEqual([['high', { as: 'phone', profiles: ['desktop', 'phone'] }], ['info', { only: true, profiles: ['phone'] }]])
-    expect(at('/b')).toEqual([['low', { as: 'desktop', profiles: ['desktop'] }]])
+    expect(at('/')).toEqual([['high', { as: 'phone', profiles: ['desktop', 'phone'], severity_by_profile: { desktop: 'low', phone: 'high' } }], ['info', { only: true, profiles: ['phone'], severity_by_profile: { phone: 'info' } }]])
+    expect(at('/b')).toEqual([['low', { as: 'desktop', profiles: ['desktop'], severity_by_profile: { desktop: 'low' } }]])
+    // The pages each suite looked at, per profile: what Health Score v2 judges it against.
+    expect(r.summary.suites.map((x) => [x.id, x.pages])).toEqual([['performance', { desktop: 3, phone: 2 }], ['a11y', { desktop: 3 }]])
     expect(r.summary.findings).toMatchObject({ high: 2, low: 1, info: 2 })
     expect(new Set(sink.of('finding').map((f) => f.fingerprint)).size).toBe(sink.of('finding').length)
   }, 120_000)

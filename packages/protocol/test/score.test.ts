@@ -5,10 +5,10 @@ import { SUITES } from '../src/enums'
 const f = (rule_id: string, suite: string, severity: ScoreFinding['severity'], url: string | null = 'https://site.example/'): ScoreFinding => ({ rule_id, suite, severity, url })
 const ALL = ['links', 'security', 'seo', 'ai_readiness', 'a11y', 'performance']
 
-describe('health score v1', () => {
+describe('health score v2', () => {
   it('is 100 with nothing to fix, and null when no scored suite ran', () => {
     expect(healthScore({ findings: [], pages: 40, suites: ALL })).toMatchObject({ version: SCORE_VERSION, score: 100, grade: 'A' })
-    expect(healthScore({ findings: [f('x', 'links', 'high')], pages: 40, suites: [] })).toEqual({ version: 1, score: null, grade: null, suites: [] })
+    expect(healthScore({ findings: [f('x', 'links', 'high')], pages: 40, suites: [] })).toEqual({ version: 2, score: null, grade: null, suites: [] })
     expect(healthScore({ findings: [], pages: 40, suites: ['monitor'] }).score).toBeNull()
   })
 
@@ -72,6 +72,44 @@ describe('health score v1', () => {
     expect(SCORE_SUITE_WEIGHT).toEqual({ links: 25, performance: 20, security: 20, seo: 15, a11y: 15, content: 5, ai_readiness: 5 })
     expect(Object.values(SCORE_SUITE_WEIGHT).reduce((a, b) => a + b, 0)).toBe(105)
     // Published in docs /health-score/: changing any of these needs a new SCORE_VERSION and the page updated.
-    expect({ k: SCORE_K, breadth: SCORE_BREADTH, weights: SCORE_SEVERITY_WEIGHT, version: SCORE_VERSION }).toEqual({ k: 12, breadth: 10, weights: { critical: 10, high: 5, medium: 2, low: 0.5, info: 0 }, version: 1 })
+    expect({ k: SCORE_K, breadth: SCORE_BREADTH, weights: SCORE_SEVERITY_WEIGHT, version: SCORE_VERSION }).toEqual({ k: 12, breadth: 10, weights: { critical: 10, high: 5, medium: 2, low: 0.5, info: 0 }, version: 2 })
+  })
+
+  it('judges a browser suite against the pages it checked, not the whole crawl', () => {
+    const slow = [f('performance.lcp.slow', 'performance', 'medium', 'https://site.example/a')]
+    // One slow page of the 10 measured is a tenth of them: the full weight, 2. Against all 300 crawled pages it was 0.0667.
+    expect(healthScore({ findings: slow, pages: 300, suites: [{ id: 'performance', pages: { desktop: 10 } }] }).suites[0]).toMatchObject({ penalty: 2, score: 84.6 })
+    expect(healthScore({ findings: slow, pages: 300, suites: ['performance'] }).suites[0]).toMatchObject({ penalty: 0.0667, score: 99.4 })
+    // Every other suite reads the whole crawl and is scored as before, whatever a summary says it looked at in a browser.
+    expect(healthScore({ findings: [f('links.broken', 'links', 'high')], pages: 300, suites: [{ id: 'links' }] }).suites[0]!.penalty).toBe(0.1667)
+    expect(healthScore({ findings: [f('ai_readiness.schema.invalid', 'ai_readiness', 'low')], pages: 300, suites: [{ id: 'ai_readiness', pages: { desktop: 10 } }] }).suites[0]!.penalty).toBe(0.0167)
+  })
+
+  it('scores speed and accessibility once per device and takes the mean; other suites once', () => {
+    const findings: ScoreFinding[] = [
+      // Slow on both, worse on the phone; one layout problem only the phone has; one desktop-only.
+      { ...f('performance.lcp.slow', 'performance', 'high', 'https://site.example/'), by_profile: { desktop: 'medium', phone: 'high' } },
+      { ...f('performance.cls.high', 'performance', 'low', 'https://site.example/'), by_profile: { phone: 'low' } },
+      { ...f('performance.page_weight', 'performance', 'low', 'https://site.example/b'), by_profile: { desktop: 'low' } },
+      { ...f('links.broken', 'links', 'high', 'https://site.example/x'), by_profile: { phone: 'high' } },
+    ]
+    const r = healthScore({ findings, pages: 40, suites: ['links', { id: 'performance', pages: { desktop: 10, phone: 1 } }] })
+    // Desktop: medium 2 + low 0.5, each on 1 of 10 pages (full weight) = 2.5 → 81.2. Phone: high 5 + low 0.5 on its one page = 5.5 → 63.2.
+    expect(r.suites.find((s) => s.suite === 'performance')).toEqual({ suite: 'performance', score: 72.2, penalty: 4, weight: 20, rules: 3, devices: { desktop: 81.2, phone: 63.2 } })
+    // Links is not a per-device suite: its finding counts once, whatever profile saw it. 5 × 10 × 1/40 = 1.25 → 90.1.
+    expect(r.suites.find((s) => s.suite === 'links')).toEqual({ suite: 'links', score: 90.1, penalty: 1.25, weight: 25, rules: 1 })
+    // (25 × 90.1 + 20 × 72.2) / 45 = 82.1
+    expect(r).toMatchObject({ score: 82, grade: 'B' })
+  })
+
+  it('with one device, or findings from before profiles, scores as a single measurement', () => {
+    const findings = [f('a11y.image_alt', 'a11y', 'high', 'https://site.example/a')]
+    const one = healthScore({ findings, pages: 50, suites: [{ id: 'a11y', pages: { desktop: 25 } }] })
+    expect(one.suites[0]).toEqual({ suite: 'a11y', score: 84.6, penalty: 2, weight: 15, rules: 1 })
+    // A finding without by_profile counts on every device that ran.
+    const both = healthScore({ findings, pages: 50, suites: [{ id: 'a11y', pages: { desktop: 25, phone: 25 } }] })
+    expect(both.suites[0]).toMatchObject({ score: 84.6, devices: { desktop: 84.6, phone: 84.6 } })
+    // A device that measured no pages is not a clean result: it is left out.
+    expect(healthScore({ findings, pages: 50, suites: [{ id: 'a11y', pages: { desktop: 25, phone: 0 } }] }).suites[0]!.devices).toBeUndefined()
   })
 })

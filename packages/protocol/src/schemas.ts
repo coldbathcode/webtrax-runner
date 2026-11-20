@@ -236,7 +236,11 @@ export const SummaryRecord = z.object({
   pages: z.object({ crawled: z.int().min(0), failed: z.int().min(0) }),
   links: z.object({ checked: z.int().min(0), broken: z.int().min(0) }),
   findings: SeverityCounts,
-  suites: z.array(z.object({ id: SuiteEnum, version: z.string(), requires: z.array(z.enum(CAPABILITIES)) })),
+  suites: z.array(z.object({
+    id: SuiteEnum, version: z.string(), requires: z.array(z.enum(CAPABILITIES)),
+    /** For a suite that ran in the browser stage: the pages it looked at, per browser profile (Health Score v2). */
+    pages: z.partialRecord(z.enum(BROWSER_PROFILES), z.int().min(0)).optional(),
+  })),
 })
 export type SummaryRecord = z.output<typeof SummaryRecord>
 

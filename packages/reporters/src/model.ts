@@ -60,6 +60,18 @@ export const speedProfiles = (rows: readonly SpeedRow[]): BrowserProfileId[] => 
 export const seconds = (ms: number | undefined) => (ms === undefined ? '—' : `${(ms / 1000).toFixed(ms < 9950 ? 1 : 0)} s`)
 export const kilobytes = (bytes: number | undefined) => (bytes === undefined ? '—' : bytes >= 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.round(bytes / 1000)} kB`)
 
+/** A finding's severity on each browser profile it was seen on (`evidence.severity_by_profile`), when the run had several. */
+export function severityByProfile(evidence: Record<string, unknown>): Partial<Record<BrowserProfileId, Severity>> | undefined {
+  const raw = evidence.severity_by_profile
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: Partial<Record<BrowserProfileId, Severity>> = {}
+  for (const p of BROWSER_PROFILES) {
+    const s = (raw as Record<string, unknown>)[p]
+    if (typeof s === 'string' && (SEVERITIES as readonly string[]).includes(s)) out[p] = s as Severity
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 export const shortId = (fingerprint: string) => fingerprint.slice(0, 10)
 
 export function buildReport(records: readonly RunLine[], rules: readonly RuleMeta[] = []): Report {
@@ -85,9 +97,9 @@ export function buildReport(records: readonly RunLine[], rules: readonly RuleMet
     .sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || a.rule_id.localeCompare(b.rule_id) || (a.url ?? '').localeCompare(b.url ?? ''))
   const counts = Object.fromEntries(SEVERITIES.map((s) => [s, findings.filter((f) => f.severity === s).length])) as Record<Severity, number>
   const score = healthScore({
-    findings: findings.map((f) => ({ rule_id: f.rule_id, suite: f.rule_id.split('.')[0]!, severity: f.severity, url: f.url })),
+    findings: findings.map((f) => ({ rule_id: f.rule_id, suite: f.rule_id.split('.')[0]!, severity: f.severity, url: f.url, by_profile: severityByProfile(f.evidence) })),
     pages: summary.pages.crawled,
-    suites: summary.status === 'failed' ? [] : summary.suites.map((s) => s.id),
+    suites: summary.status === 'failed' ? [] : summary.suites.map((s) => ({ id: s.id, pages: s.pages })),
   })
   return { run, summary, pages: records.filter((r): r is PageRecord => r.type === 'page'), findings, counts, score, speed: speedRows(records) }
 }

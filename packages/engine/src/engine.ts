@@ -249,9 +249,11 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const findings: FindingRecord[] = []
   const findingSeverity = new Map<string, Severity>()
   const emitted = new Set<string>()
+  // Pages each suite looked at in the browser stage, per profile (the summary's `suites[].pages`).
+  const browserPages = new Map<CheckSuite, Partial<Record<BrowserProfileId, number>>>()
   // Set by the browser stage while it runs more than one profile.
   let currentProfile: BrowserProfileId | null = null
-  let profileFindings: Map<string, { record: FindingRecord; profiles: BrowserProfileId[] }> | null = null
+  let profileFindings: Map<string, { record: FindingRecord; severities: Partial<Record<BrowserProfileId, Severity>> }> | null = null
   const suiteErrors: SuiteError[] = []
   const active = (deps.suites ?? []).filter((suite) => spec.suites[suite.id]?.enabled)
   const rules = new Map<string, { suite: CheckSuite; meta: RuleMeta }>()
@@ -278,9 +280,10 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     // not part of its identity) and keeps the worst of them; it is written when the stage ends.
     if (profileFindings && currentProfile) {
       const seen = profileFindings.get(key)
-      if (!seen) profileFindings.set(key, { record, profiles: [currentProfile] })
+      if (!seen) profileFindings.set(key, { record, severities: { [currentProfile]: record.severity } })
       else {
-        if (!seen.profiles.includes(currentProfile)) seen.profiles.push(currentProfile)
+        const before = seen.severities[currentProfile]
+        if (!before || severityRank(record.severity) < severityRank(before)) seen.severities[currentProfile] = record.severity
         if (severityRank(record.severity) < severityRank(seen.record.severity)) seen.record = record
       }
       return
@@ -298,7 +301,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     deps.signal?.removeEventListener('abort', onCancel)
     const record: SummaryRecord = {
       type: 'summary', job_id: spec.job_id, started_at: startedAt, finished_at: new Date(clock.now()).toISOString(),
-      findings: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }, suites: active.map((x) => ({ id: x.id, version: x.version, requires: x.requires })), ...summary,
+      findings: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+      suites: active.map((x) => ({ id: x.id, version: x.version, requires: x.requires, ...(browserPages.has(x) ? { pages: browserPages.get(x)! } : {}) })), ...summary,
     }
     for (const severity of findingSeverity.values()) record.findings[severity] += 1
     await write(record)
@@ -589,7 +593,12 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
               const response = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).catch(() => null)
               const bp: BrowserPage = { url, status: response?.status() ?? null, loadMs: clock.now() - started, page, profile: id }
               loaded += 1
-              for (const suite of forSuites) await runHook(suite, 'onBrowserPage', () => suite.onBrowserPage!(contexts.get(suite)!, bp), url)
+              for (const suite of forSuites) {
+                const counted = browserPages.get(suite) ?? {}
+                counted[id] = (counted[id] ?? 0) + 1
+                browserPages.set(suite, counted)
+                await runHook(suite, 'onBrowserPage', () => suite.onBrowserPage!(contexts.get(suite)!, bp), url)
+              }
               if (first && deps.onHomePage && url === home) {
                 try {
                   await deps.onHomePage(bp)
@@ -614,10 +623,11 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
       const merged = profileFindings
       profileFindings = null
       if (merged) {
-        for (const [key, { record, profiles: seenIn }] of merged) {
+        for (const [key, { record, severities }] of merged) {
           if (emitted.has(key)) continue
           emitted.add(key)
-          const out: FindingRecord = { ...record, evidence: { ...record.evidence, profiles: seenIn } }
+          // Where it was seen, and how severe it was there (Health Score v2 scores each device on its own).
+          const out: FindingRecord = { ...record, evidence: { ...record.evidence, profiles: Object.keys(severities), severity_by_profile: severities } }
           findings.push(out)
           findingSeverity.set(out.fingerprint, out.severity)
           await write(out)

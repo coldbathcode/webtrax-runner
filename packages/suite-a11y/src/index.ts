@@ -49,6 +49,8 @@ export const a11ySuite: CheckSuite = {
   requires: ['http', 'browser'],
   rules: A11Y_RULES,
   defaultSample: 25,
+  // What is reachable and readable depends on the screen: checked as each browser profile (desktop, phone).
+  everyProfile: true,
 
   async onBrowserPage(ctx, bp) {
     if (bp.status === null || bp.status >= 400) return

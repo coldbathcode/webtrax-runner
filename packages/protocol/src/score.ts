@@ -1,5 +1,6 @@
 /**
- * Health Score v1 (C06.8; plan/06-check-suites/ai-readiness-and-monitors.md §5).
+ * Health Score v2 (C06.8, D20; plan/06-check-suites/ai-readiness-and-monitors.md §5
+ * and browsers-and-devices.md).
  *
  * One number, 0 to 100, for a run: the same findings, pages and suites give
  * the same integer in the CLI, in a report rendered again later and in
@@ -17,12 +18,29 @@
  * rounded to a whole number. Suites that did not run are left out, not
  * counted as perfect. `monitor` findings are shown but never scored.
  *
+ * New in v2:
+ *
+ * - **Desktop and phone both count.** Speed and accessibility depend on the
+ *   device, so when a run measured both, each is scored once per device (a
+ *   finding counts for the devices it was seen on, at the severity it had
+ *   there) and the suite's score is the mean of the two. With one device
+ *   the score is that device's.
+ * - **Pages checked is the suite's own.** Speed and accessibility look at a
+ *   sample of pages in a browser and are judged against that sample (per
+ *   device), not the whole crawl: a slow page among the ten measured is a
+ *   tenth of them.
+ *
+ * A run with one device and no browser sample scores exactly as in v1.
+ *
  * The constants are part of the published formula (docs: /health-score/).
  * Changing any of them, or the formula, means a new SCORE_VERSION.
  */
-import type { Severity, SuiteId } from './enums'
+import type { BrowserProfileId, Severity, SuiteId } from './enums'
 
-export const SCORE_VERSION = 1
+export const SCORE_VERSION = 2
+
+/** Suites scored once per browser profile, because their results depend on the device. */
+export const SCORE_PER_DEVICE: readonly SuiteId[] = ['performance', 'a11y']
 
 /** What one rule costs at full breadth. Info findings never cost anything. */
 export const SCORE_SEVERITY_WEIGHT: Record<Severity, number> = { critical: 10, high: 5, medium: 2, low: 0.5, info: 0 }
@@ -44,7 +62,18 @@ export const GRADES = ['A', 'B', 'C', 'D', 'F'] as const
 export type Grade = (typeof GRADES)[number]
 export const gradeFor = (score: number): Grade => (score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 60 ? 'D' : 'F')
 
-export interface ScoreFinding { rule_id: string; suite: string; severity: Severity; url: string | null }
+export interface ScoreFinding {
+  rule_id: string; suite: string; severity: Severity; url: string | null
+  /**
+   * For a finding from a run with several browser profiles: its severity on
+   * each profile it was seen on (the finding's `evidence.severity_by_profile`).
+   * Absent, it counts on every profile at `severity`.
+   */
+  by_profile?: Partial<Record<BrowserProfileId, Severity>> | undefined
+}
+
+/** A suite that ran: its id, or with the pages it checked in a browser per profile (the summary's `suites[].pages`). */
+export type ScoreSuite = string | { id: string; pages?: Partial<Record<BrowserProfileId, number>> | undefined }
 
 export interface ScoreInput {
   /** The findings that count: open ones. Leave muted, accepted and fixed findings out. */
@@ -52,10 +81,14 @@ export interface ScoreInput {
   /** Pages the run checked (the summary's `pages.crawled`). */
   pages: number
   /** The suites that ran (the summary's `suites`). */
-  suites: readonly string[]
+  suites: readonly ScoreSuite[]
 }
 
-export interface SuiteScore { suite: SuiteId; score: number; penalty: number; weight: number; rules: number }
+export interface SuiteScore {
+  suite: SuiteId; score: number; penalty: number; weight: number; rules: number
+  /** For a suite scored per device on a run with several: each device's score (the suite's is their mean). */
+  devices?: Partial<Record<BrowserProfileId, number>>
+}
 
 export interface HealthScore {
   version: typeof SCORE_VERSION
@@ -68,24 +101,48 @@ export interface HealthScore {
 
 const round = (n: number, places: number) => Math.round(n * 10 ** places) / 10 ** places
 
+/** One suite's penalty and rule count from the findings that count for it, against the pages it checked. */
+function penaltyOf(findings: readonly { rule_id: string; severity: Severity; url: string | null }[], pages: number): { penalty: number; rules: number } {
+  const groups = new Map<string, { severity: Severity; places: number; siteWide: boolean }>()
+  for (const f of findings) {
+    const key = `${f.rule_id}\n${f.severity}`
+    const g = groups.get(key) ?? { severity: f.severity, places: 0, siteWide: false }
+    g.places += 1
+    if (f.url === null) g.siteWide = true
+    groups.set(key, g)
+  }
+  let penalty = 0
+  for (const g of groups.values()) penalty += (SCORE_SEVERITY_WEIGHT[g.severity] ?? 0) * (g.siteWide ? 1 : Math.min(1, (SCORE_BREADTH * g.places) / pages))
+  return { penalty, rules: groups.size }
+}
+const scoreOf = (penalty: number) => round(100 * Math.exp(-penalty / SCORE_K), 1)
+const count = (n: number | undefined, fallback: number) => Math.max(1, Math.floor(n ?? fallback) || 0)
+
 export function healthScore(input: ScoreInput): HealthScore {
-  const pages = Math.max(1, Math.floor(input.pages) || 0)
-  const ran = new Set(input.suites)
+  const crawled = count(input.pages, 1)
+  const ran = new Map(input.suites.map((x) => (typeof x === 'string' ? [x, undefined] : [x.id, x.pages])))
   const suites: SuiteScore[] = []
   for (const [suite, weight] of Object.entries(SCORE_SUITE_WEIGHT) as [SuiteId, number][]) {
     if (!ran.has(suite)) continue
-    const groups = new Map<string, { severity: Severity; places: number; siteWide: boolean }>()
-    for (const f of input.findings) {
-      if (f.suite !== suite) continue
-      const key = `${f.rule_id}\n${f.severity}`
-      const g = groups.get(key) ?? { severity: f.severity, places: 0, siteWide: false }
-      g.places += 1
-      if (f.url === null) g.siteWide = true
-      groups.set(key, g)
+    const mine = input.findings.filter((f) => f.suite === suite)
+    // Only the browser suites are judged against their own sample; every other suite reads the whole crawl.
+    const checked = SCORE_PER_DEVICE.includes(suite) ? ran.get(suite) : undefined
+    const devices = (Object.keys(checked ?? {}) as BrowserProfileId[]).filter((d) => (checked?.[d] ?? 0) > 0)
+    if (devices.length > 1) {
+      // Once per device: what was seen there, at the severity it had there, against the pages checked there.
+      const per = devices.map((d) => {
+        const seen = mine.flatMap((f) => (f.by_profile ? (f.by_profile[d] ? [{ rule_id: f.rule_id, severity: f.by_profile[d]!, url: f.url }] : []) : [f]))
+        return { d, ...penaltyOf(seen, count(checked![d], crawled)) }
+      })
+      const scores = per.map((x) => scoreOf(x.penalty))
+      suites.push({
+        suite, score: round(scores.reduce((a, b) => a + b, 0) / scores.length, 1), penalty: round(per.reduce((a, x) => a + x.penalty, 0) / per.length, 4), weight,
+        rules: new Set(mine.map((f) => f.rule_id)).size, devices: Object.fromEntries(per.map((x, i) => [x.d, scores[i]!])),
+      })
+      continue
     }
-    let penalty = 0
-    for (const g of groups.values()) penalty += (SCORE_SEVERITY_WEIGHT[g.severity] ?? 0) * (g.siteWide ? 1 : Math.min(1, (SCORE_BREADTH * g.places) / pages))
-    suites.push({ suite, score: round(100 * Math.exp(-penalty / SCORE_K), 1), penalty: round(penalty, 4), weight, rules: groups.size })
+    const { penalty, rules } = penaltyOf(mine, count(devices.length === 1 ? checked![devices[0]!] : undefined, crawled))
+    suites.push({ suite, score: scoreOf(penalty), penalty: round(penalty, 4), weight, rules })
   }
   if (!suites.length) return { version: SCORE_VERSION, score: null, grade: null, suites }
   const total = suites.reduce((a, s) => a + s.weight, 0)
