@@ -21,7 +21,9 @@ if $pack_only; then echo "image: packed .image/webtrax-cli.tgz"; exit 0; fi
 # Quiet when it works; when it fails, the end of the build's output, which says why
 # (docker build --quiet shows only which step failed).
 log=$(mktemp)
-if ! docker build --progress plain --tag "$tag" . >"$log" 2>&1; then
+# WEBTRAX_IMAGE_BUILD_ARGS: extra docker build arguments (CI passes --network host, see scripts/ci/images.sh).
+# shellcheck disable=SC2086
+if ! docker build --progress plain ${WEBTRAX_IMAGE_BUILD_ARGS:-} --tag "$tag" . >"$log" 2>&1; then
   echo "image: docker build failed; the last 80 lines of its output:"
   tail -n 80 "$log"
   rm -f "$log"
