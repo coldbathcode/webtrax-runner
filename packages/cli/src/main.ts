@@ -49,7 +49,8 @@ Options for check
   --max-pages <n>        pages to crawl (default 300)
   --max-depth <n>        link depth from the start page (default 10)
   --suites <list>        links,security,seo,ai_readiness,a11y,performance (default: links,security,seo,ai_readiness)
-  --browser              also run the browser suites (a11y, performance); needs Chromium or Chrome
+  --browser              also run the browser suites (a11y, performance) and the JavaScript-only
+                         content check; needs Chromium or Chrome
   --fail-on <severity>   exit 1 at this severity or worse: critical, high, medium, low, info, none (default high)
   --reports <list>       report files to write: html,md,json,sarif,junit (default html,md)
   --out <dir>            where runs are written: <dir>/runs/<time>/ (default ./.webtrax)

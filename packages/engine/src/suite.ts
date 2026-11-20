@@ -68,7 +68,12 @@ export interface CheckSuite {
   rules: RuleMeta[]
   onPage?(ctx: SuiteCtx, page: CrawledPage): void | Promise<void>
   onSite?(ctx: SuiteCtx, site: SiteState): void | Promise<void>
-  /** Browser suites (`requires: ['browser']`): called once per selected page after the crawl. */
+  /**
+   * Called once per selected page after the crawl, in Chromium. A suite that
+   * `requires: ['browser']` makes the browser stage run. One that defines this
+   * hook without requiring the browser never starts Chromium by itself: it
+   * joins the stage only when another active suite caused it.
+   */
   onBrowserPage?(ctx: SuiteCtx, page: BrowserPage): void | Promise<void>
   /** Which crawled pages get the browser stage; default: the shallowest 200 HTML pages, up to `sample`. */
   selectPages?(site: SiteState, config: Record<string, unknown>): string[]

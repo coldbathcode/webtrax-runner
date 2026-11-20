@@ -1,7 +1,7 @@
 /**
  * AI readiness (C06.6, first slice; plan/06-check-suites/ai-readiness-and-monitors.md §1):
  * can AI answer engines and agents read the site, and which ones does it let
- * in? HTTP only, after the crawl:
+ * in? Over HTTP, after the crawl:
  *
  * - `/llms.txt` exists and follows the proposal (an H1 title, then markdown
  *   links to the pages that matter), and its same-site links answer;
@@ -13,10 +13,14 @@
  * - JSON-LD that does not parse (agents and search engines skip it), and a
  *   site with no structured data on any page.
  *
+ * And one check in the browser stage, when a scan has one (the suite never
+ * starts Chromium by itself): a page whose text mostly appears only after
+ * JavaScript runs, which most AI crawlers and agents never see.
+ *
  * Webtrax never probes with another crawler's user agent: the matrix comes
  * from robots.txt alone.
  */
-import { parseRobots, type CheckSuite, type SuiteCtx } from '@webtrax/engine'
+import { parseRobots, type CheckSuite, type CrawledPage, type SuiteCtx } from '@webtrax/engine'
 import { normaliseUrl, type RuleMeta } from '@webtrax/protocol'
 
 const rule = (id: string, severity: RuleMeta['severity'], title: string, why: string, fix: string): RuleMeta => ({
@@ -30,6 +34,7 @@ export const AI_RULES = [
   rule('ai_readiness.crawlers.inconsistent', 'medium', 'AI search and AI agent are treated differently', 'Each vendor has a search crawler (it builds the index answers come from) and a user-triggered agent (it fetches a page when someone asks about it). Allowing one but blocking the other is usually an accident: the site can be cited but not opened, or opened but never found.', 'Decide one policy per vendor and give both of its user agents the same rule in robots.txt.'),
   rule('ai_readiness.schema.invalid', 'low', 'Structured data does not parse', 'JSON-LD that is not valid JSON is ignored by search engines and AI systems, so the facts it was meant to state (organisation, product, prices, articles) are lost.', 'Fix the JSON in the <script type="application/ld+json"> block (a trailing comma or an unescaped quote is the usual cause) and check it with a structured data validator.'),
   rule('ai_readiness.schema.none', 'low', 'No structured data on any page', 'JSON-LD states facts (who you are, what you sell, prices, articles) in a form search engines and AI systems read reliably. Without it they infer them from prose and can get them wrong.', 'Add JSON-LD: at least Organization (or WebSite) on the home page, and Product, Article or FAQPage where they fit.'),
+  rule('ai_readiness.render.js_only', 'high', 'Content only appears with JavaScript', 'Most AI crawlers and agents read the HTML your server sends and do not run JavaScript. On this page the browser shows several times more text than that HTML holds, so they see little or none of it and cannot quote or recommend it.', 'Send the page\'s main content in the HTML: server-side rendering, static generation or prerendering in your framework (for example Next.js, Nuxt, SvelteKit or Astro). Check with "curl <url>": the text should be there without a browser.'),
 ] satisfies RuleMeta[]
 
 /** Named AI crawlers by vendor, from their published documentation. */
@@ -65,7 +70,27 @@ export function checkLlmsTxt(body: string, base: string): LlmsTxtCheck {
   return { problems, links: [...new Set(links)] }
 }
 
+/** The rendered page must show more than this many times the text of the HTML, and at least this much text, to count as JavaScript-only. */
+export const RENDER_RATIO = 3
+export const RENDER_MIN_CHARS = 500
+
+const squash = (s: string) => s.replace(/\s+/g, ' ').trim()
+
+/** The text a reader without JavaScript gets from the HTML: the body's text, `<noscript>` included, without scripts, styles and templates. */
+export function httpText($: CrawledPage['doc']['$']): string {
+  const body = $('body').first().clone()
+  body.find('script, style, template').remove()
+  return squash(body.text())
+}
+
+/** Whether the browser's text shows the HTML was nearly empty. Both are compared as squashed character counts. */
+export function jsOnly(httpChars: number, renderedChars: number): boolean {
+  return renderedChars >= RENDER_MIN_CHARS && renderedChars > RENDER_RATIO * httpChars
+}
+
 const MAX_LINK_CHECKS = 20
+/** Per crawl: the length of each 200 page's HTML text, by normalised URL, for the browser stage to compare with. */
+const httpChars = new WeakMap<SuiteCtx, Map<string, number>>()
 /** Per crawl (one context per suite per crawl): 200 HTML pages seen, and how many had JSON-LD. */
 const seen = new WeakMap<SuiteCtx, { pages: number; withData: number }>()
 const looksHtml = (contentType: string | undefined, body: string) => /\bhtml\b/i.test(contentType ?? '') || /^\s*<(!doctype|html)\b/i.test(body)
@@ -84,6 +109,10 @@ export const aiSuite: CheckSuite = {
     count.pages += 1
     if (blocks.length) count.withData += 1
     seen.set(ctx, count)
+    const lengths = httpChars.get(ctx) ?? new Map<string, number>()
+    const chars = httpText($).length
+    for (const u of [page.url, page.outcome.finalUrl]) lengths.set(normaliseUrl(u) ?? u, chars)
+    httpChars.set(ctx, lengths)
     let bad = 0
     let firstError = ''
     blocks.each((_, el) => {
@@ -97,6 +126,23 @@ export const aiSuite: CheckSuite = {
       }
     })
     if (bad) await ctx.emit({ rule_id: 'ai_readiness.schema.invalid', url: page.url, evidence: { blocks: bad, error: firstError } })
+  },
+
+  // No 'browser' in `requires`: this runs only when the scan has a browser stage anyway (suite contract).
+  defaultSample: 10,
+  async onBrowserPage(ctx, bp) {
+    if (bp.status === null || bp.status >= 400) return
+    const http = httpChars.get(ctx)?.get(normaliseUrl(bp.url) ?? bp.url)
+    if (http === undefined) return
+    // Content fetched after the load event still counts as rendered: give it a moment to arrive.
+    await bp.page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => {})
+    const rendered = squash(await bp.page.evaluate(() => document.body?.innerText ?? '')).length
+    if (!jsOnly(http, rendered)) return
+    await ctx.emit({
+      rule_id: 'ai_readiness.render.js_only', url: bp.url,
+      title: http === 0 ? 'No text without JavaScript' : `Only ${Math.max(1, Math.round((http / rendered) * 100))}% of the text is there without JavaScript`,
+      evidence: { html_text_chars: http, rendered_text_chars: rendered, ratio: http === 0 ? null : Math.round((rendered / http) * 10) / 10 },
+    })
   },
 
   async onSite(ctx, site) {

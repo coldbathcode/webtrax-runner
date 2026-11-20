@@ -486,8 +486,10 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   await Promise.all(linkChecks.values())
 
   // Browser stage (C05.10): one Chromium load per selected page, through the egress proxy.
-  const browserSuites = active.filter((s) => s.requires.includes('browser') && s.onBrowserPage)
-  if (browserSuites.length && !stopReason) await browserStage(browserSuites)
+  // A suite that only defines onBrowserPage joins the stage when a suite that requires the browser caused it.
+  const needBrowser = active.some((s) => s.requires.includes('browser') && s.onBrowserPage)
+  const browserSuites = active.filter((s) => s.onBrowserPage)
+  if (needBrowser && !stopReason) await browserStage(browserSuites)
 
   for (const suite of active) if (suite.onSite) await runHook(suite, 'onSite', () => suite.onSite!(contexts.get(suite)!, site))
 
