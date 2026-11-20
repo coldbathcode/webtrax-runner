@@ -153,6 +153,59 @@ describe('browser stage', () => {
   })
 })
 
+describe('traces (C20 E5)', () => {
+  let site: string
+  let traced: http.Server
+  beforeAll(async () => {
+    // Chromium ignores large images with almost no content when it picks the LCP, so this one has some.
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400">${Array.from({ length: 150 }, (_, i) => `<rect x="${(i * 37) % 600}" y="${(i * 53) % 400}" width="40" height="30" fill="#${((i * 2654435761) >>> 8 & 0xffffff).toString(16).padStart(6, '0')}"/>`).join('')}</svg>`
+    traced = http.createServer((req, res) => {
+      if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<!doctype html><html lang="en"><head><title>T</title><link rel="stylesheet" href="/site.css?token=abc"><script src="/app.js"></script></head><body><img id="hero" class="wide lead third" src="/hero.svg" width="600" height="400" alt=""><img src="/missing.png" alt=""><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt=""></body></html>') }
+      if (req.url === '/site.css?token=abc') { res.writeHead(200, { 'content-type': 'text/css' }); return res.end('body{margin:0}') }
+      if (req.url === '/app.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end('console.error("boom " + "x".repeat(600)); setTimeout(() => { throw new Error("uncaught thing") }, 0)') }
+      if (req.url === '/hero.svg') { res.writeHead(200, { 'content-type': 'image/svg+xml' }); return res.end(svg) }
+      res.writeHead(404).end()
+    })
+    await new Promise<void>((r) => traced.listen(0, '127.0.0.1', r))
+    site = `http://127.0.0.1:${(traced.address() as AddressInfo).port}`
+  })
+  afterAll(() => new Promise<void>((r) => traced.close(() => r())))
+  const suite: CheckSuite = { id: 'performance', version: '1', requires: ['http', 'browser'], rules: [rule], defaultSample: 1, async onBrowserPage(_c, bp) { await bp.page.waitForTimeout(300) } }
+  const spec = () => ({ spec_version: 1 as const, job_id: 't', target: { start_url: `${site}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50, max_pages: 1 }, suites: { performance: { enabled: true } } })
+
+  it('records each request with its timing and size, what blocked rendering, the LCP, and what went wrong; never a body or a header', async () => {
+    const r = await crawl(spec(), { sink: new MemorySink(), throttle: new HostThrottle(), suites: [suite] })
+    expect(r.suiteErrors).toEqual([])
+    const [trace] = r.site!.traces!
+    expect(r.site!.traces).toHaveLength(1)
+    expect(trace).toMatchObject({ url: `${site}/`, profile: 'desktop', status: 200 })
+    const by = (end: string) => trace!.requests.find((q) => q.url.endsWith(end))!
+    expect(trace!.requests[0]).toMatchObject({ type: 'document', status: 200, start: 0, third_party: false, method: 'GET' })
+    expect(by('/site.css?token=abc')).toMatchObject({ type: 'stylesheet', status: 200, blocking: true })
+    expect(by('/app.js')).toMatchObject({ type: 'script', status: 200, blocking: true })
+    expect(by('/hero.svg')).toMatchObject({ type: 'image', status: 200, lcp: true })
+    expect(by('/hero.svg').blocking).toBeUndefined()
+    expect(by('/missing.png')).toMatchObject({ type: 'image', status: 404 })
+    // A data: URL is content: only its kind is kept.
+    expect(trace!.requests.some((q) => q.url.includes('R0lGOD'))).toBe(false)
+    for (const q of trace!.requests.filter((x) => x.status === 200)) { expect(q.duration).toBeGreaterThanOrEqual(0); expect(q.wait).toBeGreaterThanOrEqual(0); expect(q.bytes).toBeGreaterThan(0) }
+    for (let k = 1; k < trace!.requests.length; k++) expect(trace!.requests[k]!.start).toBeGreaterThanOrEqual(trace!.requests[k - 1]!.start)
+    expect(trace!.requests_total).toBe(trace!.requests.length)
+    expect(trace!.lcp).toMatchObject({ element: 'img#hero.wide.lead', url: `${site}/hero.svg` })
+    expect(trace!.lcp!.ms).toBeGreaterThan(0)
+    expect(trace!.console.some((m) => m.startsWith('boom '))).toBe(true)
+    for (const m of trace!.console) expect(m.length).toBeLessThanOrEqual(300)
+    expect(trace!.errors).toEqual(['uncaught thing'])
+    expect(Object.keys(trace!.requests[0]!).sort()).toEqual(['bytes', 'duration', 'method', 'start', 'status', 'third_party', 'type', 'url', 'wait'])
+  }, 90_000)
+
+  it('is off when asked', async () => {
+    const r = await crawl(spec(), { sink: new MemorySink(), throttle: new HostThrottle(), suites: [suite], options: { traces: false } })
+    expect(r.site!.browser!.pages).toBe(1)
+    expect(r.site!.traces).toBeUndefined()
+  }, 90_000)
+})
+
 describe('browser stage with auth headers (a protected preview)', () => {
   it('loads protected pages with them, and sends them to no other origin', async () => {
     const thirdParty: (string | undefined)[] = []

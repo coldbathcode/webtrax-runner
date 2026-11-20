@@ -29,6 +29,7 @@ import { ALLOW_ALL, parseRobots, type Robots } from './robots'
 import { parseSitemap } from './sitemap'
 import { MemorySink, type Sink } from './sink'
 import type { BrowserPage, CheckSuite, FindingInput, SuiteCtx } from './suite'
+import { recordTrace, type PageTrace } from './trace'
 import { startEgressProxy, type Refusal } from '@webtrax/net-proxy'
 import { launchBrowser } from './browser'
 import { deviceUserAgent, PROFILES, phoneUserAgent } from './profiles'
@@ -56,6 +57,8 @@ export interface EngineOptions {
   maxUrlLength: number
   /** After the time budget runs out, in-flight work gets this long to finish. */
   drainMs: number
+  /** Record what the browser asked for on each page it loads (`site.traces`). */
+  traces: boolean
   /** Overrides the spec's time budget (tests; the spec's minimum is 10 s). */
   timeBudgetMs?: number
 }
@@ -68,6 +71,7 @@ export const ENGINE_DEFAULTS: EngineOptions = {
   maxSitemapBytes: 10 * 1024 * 1024,
   maxSitemaps: 50,
   sitemapEntriesPerPage: 5,
+  traces: true,
   rateLimitAttempts: 3,
   linkCheckConcurrency: 8,
   maxLinkChecks: 5_000,
@@ -109,6 +113,8 @@ export interface SiteState {
   sitemapUrls: string[]
   /** Set when the browser stage ran: pages loaded, and requests the egress proxy refused. */
   browser?: { pages: number; refused: Refusal[]; profiles?: BrowserProfileId[] }
+  /** What the browser asked for on each page it loaded, per profile (C20 E5; `traces: false` turns it off). */
+  traces?: PageTrace[]
   /** The sitemaps list more pages than the run keeps (`sitemapEntriesPerPage`): the rest were not read. */
   sitemapTruncated?: boolean
   /** Link targets left unchecked because the run reached `maxLinkChecks`. */
@@ -650,6 +656,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     const several = profiles.length > 1
     let loaded = 0
     const refused: Refusal[] = []
+    const traces: PageTrace[] = []
     if (several) profileFindings = new Map()
     try {
       for (const [index, id] of profiles.entries()) {
@@ -688,6 +695,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
                 const cdp = await context.newCDPSession(page)
                 await cdp.send('Emulation.setCPUThrottlingRate', { rate: profile.cpuSlowdown })
               }
+              const trace = opts.traces ? recordTrace(page, url, id) : null
               const started = clock.now()
               const response = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).catch(() => null)
               const bp: BrowserPage = { url, status: response?.status() ?? null, loadMs: clock.now() - started, page, profile: id }
@@ -706,6 +714,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
                   suiteErrors.push({ suite: 'engine', hook: 'onHomePage', url, message: (error as Error).message })
                 }
               }
+              // After the suites, so what they waited for is in it. A trace is an extra: it never fails a page.
+              if (trace) await trace.finish(bp.status, bp.loadMs).then((t) => traces.push(t), () => {})
             } finally {
               await context.close().catch(() => {})
             }
@@ -719,6 +729,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
       }
     } finally {
       site.browser = { pages: loaded, refused, ...(several ? { profiles } : {}) }
+      if (traces.length) site.traces = traces
       // Findings of the stage, each with the profiles it was seen in, in the order they were first found.
       const merged = profileFindings
       profileFindings = null
