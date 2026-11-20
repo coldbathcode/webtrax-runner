@@ -18,5 +18,14 @@ rm -rf .image && mkdir .image
 mv .image/webtrax-cli-*.tgz .image/webtrax-cli.tgz
 if $pack_only; then echo "image: packed .image/webtrax-cli.tgz"; exit 0; fi
 
-docker build --quiet --tag "$tag" . >/dev/null
+# Quiet when it works; when it fails, the end of the build's output, which says why
+# (docker build --quiet shows only which step failed).
+log=$(mktemp)
+if ! docker build --progress plain --tag "$tag" . >"$log" 2>&1; then
+  echo "image: docker build failed; the last 80 lines of its output:"
+  tail -n 80 "$log"
+  rm -f "$log"
+  exit 1
+fi
+rm -f "$log"
 echo "image: built $tag ($(docker image inspect "$tag" --format '{{.Size}}' | awk '{printf "%.0f MB", $1/1e6}'))"
