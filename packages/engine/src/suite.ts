@@ -46,6 +46,12 @@ export interface SuiteCtx {
   metric(name: string, value: number, unit: string, url: string): Promise<void>
   /** One guarded GET that does not follow redirects (for checks such as HTTP → HTTPS). */
   request(url: string): Promise<Outcome>
+  /**
+   * One guarded GET as a phone's or a desktop's browser would send it (that
+   * browser's user agent with the Webtrax token), following redirects, body
+   * not read. For checks that ask whether a device gets a different answer.
+   */
+  requestAs(url: string, device: 'phone' | 'desktop'): Promise<Outcome>
   /** One guarded GET that follows redirects and reads the body whatever its type (robots.txt, llms.txt), at most `maxBytes` (default 256 KB). */
   text(url: string, maxBytes?: number): Promise<Outcome>
 }

@@ -55,7 +55,7 @@ const HTML = /text\/html|application\/xhtml\+xml/i
 /** One exchange, with what the retry logic needs to know. */
 type Attempt = Outcome & { retryAfter?: string | null; transientError?: boolean; location?: string | null }
 
-interface OnceOptions { method: 'GET' | 'HEAD'; referer?: string | undefined; read: (contentType: string) => boolean; maxBytes: number; manual: boolean }
+interface OnceOptions { method: 'GET' | 'HEAD'; referer?: string | undefined; read: (contentType: string) => boolean; maxBytes: number; manual: boolean; userAgent?: string }
 
 const headersObject = (h: { forEach(cb: (value: string, key: string) => void): void }) => {
   const out: Record<string, string> = {}
@@ -67,8 +67,8 @@ const isRedirect = (status: number | null) => status !== null && status >= 300 &
 
 export function createRequester(o: RequesterOptions) {
   const maxRedirects = o.maxRedirects ?? 10
-  const headers = (referer?: string) => ({
-    'user-agent': o.userAgent,
+  const headers = (referer?: string, userAgent: string = o.userAgent) => ({
+    'user-agent': userAgent,
     accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
     'accept-language': 'en;q=0.9,*;q=0.5',
     ...(referer ? { referer } : {}),
@@ -80,7 +80,7 @@ export function createRequester(o: RequesterOptions) {
     await o.throttle.wait(new URL(url).host, o.rps, o.signal)
     const signal = AbortSignal.any([o.signal, AbortSignal.timeout(o.timeoutMs)])
     try {
-      const { response, url: finalUrl, chain } = await o.fetch(url, { method: x.method, headers: headers(x.referer), signal, ...(x.manual ? { redirect: 'manual' as const } : {}), ...(o.originHeaders ? { originHeaders: o.originHeaders } : {}) })
+      const { response, url: finalUrl, chain } = await o.fetch(url, { method: x.method, headers: headers(x.referer, x.userAgent), signal, ...(x.manual ? { redirect: 'manual' as const } : {}), ...(o.originHeaders ? { originHeaders: o.originHeaders } : {}) })
       const ttfb = o.clock.now() - started
       const contentType = response.headers.get('content-type') ?? undefined
       const base = {
@@ -156,6 +156,8 @@ export function createRequester(o: RequesterOptions) {
     page: (url: string, referer?: string, stopAt: (next: string) => boolean = () => false) => withRetries(() => pageAttempt(url, referer, stopAt)),
     /** A plain-text resource (robots.txt, sitemaps): GET and read whatever it is, up to `maxBytes`. */
     text: (url: string, maxBytes = o.maxBodyBytes) => withRetries(() => once(url, { method: 'GET', read: () => true, maxBytes, manual: false })),
+    /** The same URL asked for as another client (a phone's or a desktop's browser): GET, redirects followed, body not read. */
+    as: (url: string, userAgent: string) => withRetries(() => once(url, { method: 'GET', read: () => false, maxBytes: 0, manual: false, userAgent })),
     /** A link target that will not be crawled: HEAD, then GET for statuses servers often get wrong on HEAD. */
     link: (url: string, referer?: string) =>
       withRetries(async () => {

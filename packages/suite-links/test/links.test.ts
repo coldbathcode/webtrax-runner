@@ -8,7 +8,10 @@ function ctx(start = `${O}/`) {
   const emitted: FindingInput[] = []
   const c: SuiteCtx = {
     spec: JobSpec.parse({ spec_version: 1, job_id: 'x', target: { start_url: start } }), config: {}, origin: O, startUrl: `${O}/`, requestedStartUrl: start,
-    emit: async (f) => { emitted.push(f) }, metric: async () => {}, request: async () => { throw new Error('links suite must not fetch') }, text: async () => { throw new Error('links suite must not fetch') },
+    emit: async (f) => { emitted.push(f) }, metric: async () => {}, request: async () => { throw new Error('links suite must not fetch pages again') },
+    // The app link files are absent, and every page answers a phone and a desktop browser.
+    text: async (url) => ({ url, finalUrl: url, status: 404, chain: [], timing: { ttfb: 1, total: 1 }, requests: 1 }),
+    requestAs: async (url) => ({ url, finalUrl: url, status: 200, chain: [], timing: { ttfb: 1, total: 1 }, requests: 1 }),
   }
   return { c, emitted, rules: () => emitted.map((f) => `${f.rule_id} ${f.url}${f.source_url ? ` <- ${f.source_url}` : ''}`) }
 }

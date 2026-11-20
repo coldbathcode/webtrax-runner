@@ -41,3 +41,15 @@ export function phoneUserAgent(chromiumVersion: string): string {
   const major = /^(\d+)/.exec(chromiumVersion)?.[1] ?? '140'
   return `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Mobile Safari/537.36 (compatible; ${BOT_PRODUCT_TOKEN}/${BOT_VERSION}; +${BOT_INFO_URL})`
 }
+
+/** Chrome's major version in user agents sent without a browser (HTTP checks by device). Bump with Playwright. */
+export const CHROME_MAJOR = '143'
+
+/** Chrome on a laptop's user agent, with the Webtrax token. */
+export function desktopUserAgent(chromiumVersion: string = CHROME_MAJOR): string {
+  const major = /^(\d+)/.exec(chromiumVersion)?.[1] ?? CHROME_MAJOR
+  return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36 (compatible; ${BOT_PRODUCT_TOKEN}/${BOT_VERSION}; +${BOT_INFO_URL})`
+}
+
+/** The user agent a device's browser sends, for HTTP checks that ask "does a phone get the same answer?". */
+export const deviceUserAgent = (device: 'phone' | 'desktop'): string => (device === 'phone' ? phoneUserAgent(CHROME_MAJOR) : desktopUserAgent())

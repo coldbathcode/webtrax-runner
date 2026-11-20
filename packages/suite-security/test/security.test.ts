@@ -16,6 +16,7 @@ function setup(start: string, httpAnswer: Partial<Outcome> = { status: 301, fina
     emit: async (f) => { emitted.push(f) }, metric: async () => {},
     request: async (url) => { requested.push(url); return { url, finalUrl: url, status: null, chain: [], timing: { ttfb: 0, total: 0 }, requests: 1, ...httpAnswer } },
     text: async () => { throw new Error('security suite reads no text') },
+    requestAs: async () => { throw new Error('security suite asks as no device') },
   }
   const page = (url: string, headers: Record<string, string>, html = '<p>x</p>'): CrawledPage => ({
     url, depth: 0, doc: parseHtml(html, url), outcome: { url, finalUrl: url, status: 200, chain: [], headers, timing: { ttfb: 1, total: 1 }, requests: 1 },

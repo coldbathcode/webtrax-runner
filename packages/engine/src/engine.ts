@@ -31,7 +31,7 @@ import { MemorySink, type Sink } from './sink'
 import type { BrowserPage, CheckSuite, FindingInput, SuiteCtx } from './suite'
 import { startEgressProxy, type Refusal } from '@webtrax/net-proxy'
 import { launchBrowser } from './browser'
-import { PROFILES, phoneUserAgent } from './profiles'
+import { deviceUserAgent, PROFILES, phoneUserAgent } from './profiles'
 import { HostThrottle, realClock, sharedThrottle, type ThrottleClock } from './throttle'
 
 export interface EngineOptions {
@@ -361,6 +361,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     spec, config: spec.suites[suite.id]?.config ?? {}, origin, startUrl, requestedStartUrl: spec.target.start_url, emit: emitFor(suite),
     request: (url) => requester.page(url, undefined, () => true),
     text: (url, maxBytes = 256 * 1024) => requester.text(url, maxBytes),
+    requestAs: (url, device) => requester.as(url, deviceUserAgent(device)),
     metric: async (name, value, unit, url) => {
       const profile = currentProfile ?? spec.browser.profiles[0]!
       await write({ type: 'metric', name, value, unit, url: normaliseUrl(url) ?? url, device: PROFILES[profile].form === 'phone' ? 'mobile' : 'desktop', profile })

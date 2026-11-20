@@ -8,7 +8,7 @@ function setup(texts: Record<string, string> = {}) {
   const emitted: FindingInput[] = []
   const ctx: SuiteCtx = {
     spec: JobSpec.parse({ spec_version: 1, job_id: 'x', target: { start_url: `${O}/` } }), config: {}, origin: O, startUrl: `${O}/`, requestedStartUrl: `${O}/`,
-    emit: async (f) => { emitted.push(f) }, metric: async () => {}, request: async () => { throw new Error('no fetching') },
+    emit: async (f) => { emitted.push(f) }, metric: async () => {}, request: async () => { throw new Error('no fetching') }, requestAs: async () => { throw new Error('no fetching') },
     text: async (url) => {
       if (!(url in texts)) throw new Error(`no fetching ${url}`)
       return { url, finalUrl: url, status: 200, chain: [], body: texts[url] ?? '', contentType: 'text/plain', timing: { ttfb: 1, total: 1 }, requests: 1 }

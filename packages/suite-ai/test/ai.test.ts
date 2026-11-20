@@ -15,6 +15,7 @@ function setup(files: Record<string, Outcome | undefined>, live: Record<string, 
     spec: JobSpec.parse({ spec_version: 1, job_id: 'x', target: { start_url: `${O}/` } }), config: {}, origin: O, startUrl: `${O}/`, requestedStartUrl: `${O}/`,
     emit: async (f) => { emitted.push(f) }, metric: async () => {},
     request: async (url) => { fetched.push(url); return answer(url, live[url] ?? 404, '', 'text/html') },
+    requestAs: async () => { throw new Error('the AI suite asks as no device') },
     text: async (url) => { fetched.push(url); return files[url] ?? answer(url, 404, 'Not found') },
   }
   const by = (id: string) => emitted.filter((f) => f.rule_id === id)
