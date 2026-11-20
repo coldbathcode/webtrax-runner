@@ -47,6 +47,19 @@ const run = (over: Record<string, unknown> = {}, deps: Parameters<typeof crawl>[
 }
 
 describe('start URL', () => {
+  it('tells a watcher about each URL as it is answered, with the page that led to it', async () => {
+    routes.set('/w', (_q, res) => html(res, links('/w/a', '/w/gone')))
+    routes.set('/w/a', (_q, res) => html(res, links('/w/b', '/w')))
+    routes.set('/w/b', (_q, res) => html(res, 'end'))
+    const seen: { url: string; status: number | null; depth: number; total_ms: number | null; from: string | null }[] = []
+    const r = await crawl({ spec_version: 1, job_id: 'w', target: { start_url: `${origin}/w` }, scope: { allow_private: true }, limits: { per_host_rps: 50 } },
+      { sink: new MemorySink(), throttle: new HostThrottle(), onFetched: (f) => { seen.push(f); throw new Error('a watcher that throws') } })
+    expect(r.summary.status).toBe('completed')
+    expect(seen.map((f) => [f.url.replace(origin, ''), f.status, f.depth, f.from?.replace(origin, '') ?? null])).toEqual([['/w', 200, 0, null], ['/w/a', 200, 1, '/w'], ['/w/gone', 404, 1, '/w'], ['/w/b', 200, 2, '/w/a']])
+    for (const f of seen) expect(f.total_ms).toBeGreaterThanOrEqual(0)
+    expect(seen).toHaveLength(r.site!.pages.size)
+  })
+
   it('fails the run when the start URL is unreachable (COR-02)', async () => {
     reset()
     routes.set('/', (_q, res) => html(res, 'down', 503))

@@ -131,6 +131,12 @@ export interface CrawlDeps {
   /** Called once per crawled HTML page with its parsed document. */
   onPage?: (page: CrawledPage) => void | Promise<void>
   /**
+   * Called as each URL of the crawl is answered, with the page that led to it
+   * (null for the start page and for pages found only in a sitemap). For a
+   * caller that shows the crawl while it runs. Errors here are ignored.
+   */
+  onFetched?: (fetched: { url: string; status: number | null; depth: number; total_ms: number | null; from: string | null }) => void
+  /**
    * Called with the start page loaded in Chromium (after the suites have seen
    * it), for a caller that wants to look at the rendered page itself, such as
    * taking a thumbnail. Setting it makes the browser stage run even when no
@@ -530,6 +536,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
       timing_ms: outcome.timing, ...(outcome.error ? { error: outcome.error } : {}), ...(outcome.contentType ? { content_type: outcome.contentType } : {}),
     }
     recordLink(item.url, true, 'crawl', outcome)
+    try { deps.onFetched?.({ url: item.url, status: outcome.status, depth: item.depth, total_ms: outcome.timing ? Math.round(outcome.timing.total) : null, from: item.referer && site.pages.has(item.referer) ? item.referer : null }) } catch { /* a watcher never stops a crawl */ }
     // A page cut off at the size limit was not read to its end: links and text after the cut were not seen.
     if (outcome.truncated) limitHit ??= 'page_truncated'
 
