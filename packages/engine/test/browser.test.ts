@@ -43,6 +43,25 @@ describe('browser stage', () => {
     expect(r.summary.suites).toEqual([{ id: 'performance', version: '1', requires: ['http', 'browser'] }])
   }, 90_000)
 
+  it('hands the start page to onHomePage: alone it loads that page only and keeps optional hooks out; with a suite it comes after the suite', async () => {
+    const order: string[] = []
+    const optional: CheckSuite = { id: 'ai_readiness', version: '1', requires: ['http'], rules: [], onBrowserPage(_c, bp) { order.push(`optional ${bp.url.replace(origin, '')}`) } }
+    const spec = (suites: Record<string, { enabled: boolean }>) => ({ spec_version: 1 as const, job_id: 'o', target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 }, suites })
+    const alone = await crawl(spec({ ai_readiness: { enabled: true } }), { sink: new MemorySink(), throttle: new HostThrottle(), suites: [optional], onHomePage: async (bp) => { order.push(`home ${await bp.page.title()}`) } })
+    expect(alone.suiteErrors).toEqual([])
+    expect(alone.site!.browser!.pages).toBe(1)
+    expect(order).toEqual(['home Home'])
+
+    order.length = 0
+    const browser: CheckSuite = { id: 'performance', version: '1', requires: ['http', 'browser'], rules: [rule], defaultSample: 2, selectPages: () => [`${origin}/a`, `${origin}/b`], onBrowserPage(_c, bp) { order.push(`suite ${bp.url.replace(origin, '')}`) } }
+    const both = await crawl(spec({ performance: { enabled: true } }), { sink: new MemorySink(), throttle: new HostThrottle(), suites: [browser], onHomePage: () => { order.push('home'); throw new Error('camera jammed') } })
+    // The start page is loaded first even though the suite did not pick it; a failing hook is recorded, not fatal.
+    expect(order).toEqual(['home', 'suite /a', 'suite /b'])
+    expect(both.site!.browser!.pages).toBe(3)
+    expect(both.suiteErrors).toEqual([{ suite: 'engine', hook: 'onHomePage', url: `${origin}/`, message: 'camera jammed' }])
+    expect(both.summary.status).toBe('completed')
+  }, 120_000)
+
   it('does not start a browser when no browser suite runs', async () => {
     const r = await crawl({ spec_version: 1, job_id: 'h', target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 } }, { sink: new MemorySink(), throttle: new HostThrottle() })
     expect(r.site!.browser).toBeUndefined()

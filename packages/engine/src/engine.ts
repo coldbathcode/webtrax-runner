@@ -103,13 +103,20 @@ export interface CrawlDeps {
   signal?: AbortSignal
   /** Called once per crawled HTML page with its parsed document. */
   onPage?: (page: CrawledPage) => void | Promise<void>
+  /**
+   * Called with the start page loaded in Chromium (after the suites have seen
+   * it), for a caller that wants to look at the rendered page itself, such as
+   * taking a thumbnail. Setting it makes the browser stage run even when no
+   * browser suite does. An error here is recorded and never fails the run.
+   */
+  onHomePage?: (page: BrowserPage) => void | Promise<void>
   /** Check suites available to this run; the spec's `suites` decides which run. */
   suites?: CheckSuite[]
   runner?: { name: string; version: string }
   options?: Partial<EngineOptions>
 }
 
-export interface SuiteError { suite: string; hook: 'onPage' | 'onSite' | 'onBrowserPage' | 'browser'; url?: string; message: string }
+export interface SuiteError { suite: string; hook: 'onPage' | 'onSite' | 'onBrowserPage' | 'onHomePage' | 'browser'; url?: string; message: string }
 
 export interface CrawlResult { summary: SummaryRecord; site: SiteState | null; findings: FindingRecord[]; suiteErrors: SuiteError[] }
 
@@ -487,9 +494,10 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
 
   // Browser stage (C05.10): one Chromium load per selected page, through the egress proxy.
   // A suite that only defines onBrowserPage joins the stage when a suite that requires the browser caused it.
+  // onHomePage alone also starts the stage, but then for the start page only: optional hooks stay out.
   const needBrowser = active.some((s) => s.requires.includes('browser') && s.onBrowserPage)
-  const browserSuites = active.filter((s) => s.onBrowserPage)
-  if (needBrowser && !stopReason) await browserStage(browserSuites)
+  const browserSuites = needBrowser ? active.filter((s) => s.onBrowserPage) : []
+  if ((needBrowser || deps.onHomePage) && !stopReason) await browserStage(browserSuites)
 
   for (const suite of active) if (suite.onSite) await runHook(suite, 'onSite', () => suite.onSite!(contexts.get(suite)!, site))
 
@@ -504,6 +512,16 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
       const sample = typeof config.sample === 'number' ? config.sample : (suite.defaultSample ?? 10)
       const urls = suite.selectPages ? suite.selectPages(site, config) : [...new Set(pages)].slice(0, sample)
       for (const url of urls) wanted.set(url, [...(wanted.get(url) ?? []), suite])
+    }
+    // The start page, for onHomePage: first, and loaded even if no suite picked it.
+    const home = normaliseUrl(site.startUrl) ?? site.startUrl
+    if (deps.onHomePage && pages.includes(home)) {
+      const forHome = wanted.get(home) ?? []
+      wanted.delete(home)
+      const rest = [...wanted]
+      wanted.clear()
+      wanted.set(home, forHome)
+      for (const [u, x] of rest) wanted.set(u, x)
     }
     const proxy = await startEgressProxy({ policy: { allowPrivate: spec.scope.allow_private } })
     let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined
@@ -531,6 +549,13 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
           const bp: BrowserPage = { url, status: response?.status() ?? null, loadMs: clock.now() - started, page }
           loaded += 1
           for (const suite of forSuites) await runHook(suite, 'onBrowserPage', () => suite.onBrowserPage!(contexts.get(suite)!, bp), url)
+          if (deps.onHomePage && url === home) {
+            try {
+              await deps.onHomePage(bp)
+            } catch (error) {
+              suiteErrors.push({ suite: 'engine', hook: 'onHomePage', url, message: (error as Error).message })
+            }
+          }
         } finally {
           await context.close().catch(() => {})
         }
