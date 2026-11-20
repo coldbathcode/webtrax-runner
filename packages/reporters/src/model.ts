@@ -72,6 +72,23 @@ export function severityByProfile(evidence: Record<string, unknown>): Partial<Re
   return Object.keys(out).length ? out : undefined
 }
 
+/**
+ * What the run could not vouch for, in a sentence, or null: checks that did
+ * not finish, and a crawl that stopped at one of its own limits. A reader
+ * must not take silence from these as a clean result.
+ */
+export function caveatText(summary: SummaryRecord): string | null {
+  const parts: string[] = []
+  const skipped = summary.suites.filter((s) => s.skipped).map((s) => s.id)
+  const incomplete = summary.suites.filter((s) => s.complete === false && !s.skipped).map((s) => s.id)
+  if (skipped.length) parts.push(`Did not run: ${skipped.join(', ')}.`)
+  if (incomplete.length) parts.push(`Ran with errors, so may have missed issues: ${incomplete.join(', ')}.`)
+  if (summary.stop_reason === 'page_limit') parts.push('The site has more pages than this run may crawl: the rest were not checked.')
+  if (summary.stop_reason === 'depth_limit') parts.push('Some pages are deeper than this run may follow links: they were not checked.')
+  if (summary.stop_reason === 'page_truncated') parts.push('A page was larger than the size limit and was read only in part.')
+  return parts.length ? parts.join(' ') : null
+}
+
 export const shortId = (fingerprint: string) => fingerprint.slice(0, 10)
 
 export function buildReport(records: readonly RunLine[], rules: readonly RuleMeta[] = []): Report {
@@ -99,7 +116,7 @@ export function buildReport(records: readonly RunLine[], rules: readonly RuleMet
   const score = healthScore({
     findings: findings.map((f) => ({ rule_id: f.rule_id, suite: f.rule_id.split('.')[0]!, severity: f.severity, url: f.url, by_profile: severityByProfile(f.evidence) })),
     pages: summary.pages.crawled,
-    suites: summary.status === 'failed' ? [] : summary.suites.map((s) => ({ id: s.id, pages: s.pages })),
+    suites: summary.status === 'failed' ? [] : summary.suites.map((s) => ({ id: s.id, pages: s.pages, skipped: s.skipped })),
   })
   return { run, summary, pages: records.filter((r): r is PageRecord => r.type === 'page'), findings, counts, score, speed: speedRows(records) }
 }

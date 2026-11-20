@@ -16,6 +16,7 @@
 import type { Page } from 'playwright-core'
 import type { BrowserProfileId, Capability, FetchError, JobSpec, RuleMeta, Severity, SuiteId } from '@webtrax/protocol'
 import type { CrawledPage, SiteState } from './engine'
+import { UNVERIFIABLE_STATUSES } from './classify'
 import type { Outcome } from './requester'
 
 export interface FindingInput {
@@ -96,11 +97,11 @@ export interface CheckSuite {
   defaultSample?: number
 }
 
-/** Link outcomes that count as broken, by rule. Rate limiting and robots skips never do (COR-12). */
+/** Link outcomes that count as broken, by rule. Rate limiting and robots skips never do (COR-12), nor does a target that asked for a sign-in or turned the check away (V2-COR-03). */
 export function linkProblem(o: { status: number | null; error?: FetchError | undefined }): 'http' | 'timeout' | 'dns' | 'unreachable' | null {
   if (o.error === 'timeout') return 'timeout'
   if (o.error === 'dns_error') return 'dns'
   if (o.error === 'connection_error' || o.error === 'tls_error' || o.error === 'blocked_by_scope' || o.error === 'invalid_url') return 'unreachable'
   if (o.error) return null
-  return o.status !== null && o.status >= 400 && o.status !== 429 ? 'http' : null
+  return o.status !== null && o.status >= 400 && o.status !== 429 && !UNVERIFIABLE_STATUSES.has(o.status) ? 'http' : null
 }

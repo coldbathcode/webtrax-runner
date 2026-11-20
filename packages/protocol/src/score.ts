@@ -73,7 +73,7 @@ export interface ScoreFinding {
 }
 
 /** A suite that ran: its id, or with the pages it checked in a browser per profile (the summary's `suites[].pages`). */
-export type ScoreSuite = string | { id: string; pages?: Partial<Record<BrowserProfileId, number>> | undefined }
+export type ScoreSuite = string | { id: string; pages?: Partial<Record<BrowserProfileId, number>> | undefined; /** The suite never ran (the summary's `suites[].skipped`): it is left out, not scored as clean. */ skipped?: boolean | undefined }
 
 export interface ScoreInput {
   /** The findings that count: open ones. Leave muted, accepted and fixed findings out. */
@@ -120,7 +120,8 @@ const count = (n: number | undefined, fallback: number) => Math.max(1, Math.floo
 
 export function healthScore(input: ScoreInput): HealthScore {
   const crawled = count(input.pages, 1)
-  const ran = new Map(input.suites.map((x) => (typeof x === 'string' ? [x, undefined] : [x.id, x.pages])))
+  // A suite that was asked for and never ran says nothing: scoring it 100 would reward a broken check (V2-COR-07).
+  const ran = new Map(input.suites.flatMap((x): [string, Partial<Record<BrowserProfileId, number>> | undefined][] => (typeof x === 'string' ? [[x, undefined]] : x.skipped ? [] : [[x.id, x.pages]])))
   const suites: SuiteScore[] = []
   for (const [suite, weight] of Object.entries(SCORE_SUITE_WEIGHT) as [SuiteId, number][]) {
     if (!ran.has(suite)) continue

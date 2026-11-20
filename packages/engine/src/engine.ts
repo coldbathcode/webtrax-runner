@@ -42,6 +42,12 @@ export interface EngineOptions {
   maxSitemapBytes: number
   maxSitemaps: number
   rateLimitAttempts: number
+  /** Link checks in flight at once (V2-COR-05): unbounded, a page of thousands of links starts them all and they time each other out. */
+  linkCheckConcurrency: number
+  /** Distinct link targets checked per run; further ones are counted in `site.linksNotChecked`, never reported as anything. */
+  maxLinkChecks: number
+  /** URLs longer than this are not crawled, checked or recorded (the protocol's limit is 4,096). */
+  maxUrlLength: number
   /** After the time budget runs out, in-flight work gets this long to finish. */
   drainMs: number
   /** Overrides the spec's time budget (tests; the spec's minimum is 10 s). */
@@ -56,6 +62,9 @@ export const ENGINE_DEFAULTS: EngineOptions = {
   maxSitemapBytes: 10 * 1024 * 1024,
   maxSitemaps: 50,
   rateLimitAttempts: 3,
+  linkCheckConcurrency: 8,
+  maxLinkChecks: 5_000,
+  maxUrlLength: 2_000,
   drainMs: 15_000,
 }
 
@@ -93,6 +102,8 @@ export interface SiteState {
   sitemapUrls: string[]
   /** Set when the browser stage ran: pages loaded, and requests the egress proxy refused. */
   browser?: { pages: number; refused: Refusal[]; profiles?: BrowserProfileId[] }
+  /** Link targets left unchecked because the run reached `maxLinkChecks`. */
+  linksNotChecked?: number
 }
 
 export interface CrawlDeps {
@@ -117,9 +128,20 @@ export interface CrawlDeps {
   options?: Partial<EngineOptions>
 }
 
-export interface SuiteError { suite: string; hook: 'onPage' | 'onSite' | 'onBrowserPage' | 'onHomePage' | 'browser'; url?: string; message: string }
+export interface SuiteError { suite: string; hook: 'onPage' | 'onSite' | 'onBrowserPage' | 'onHomePage' | 'browser' | 'record'; url?: string; message: string }
 
-export interface CrawlResult { summary: SummaryRecord; site: SiteState | null; findings: FindingRecord[]; suiteErrors: SuiteError[] }
+/**
+ * What a run actually looked at, for anyone deciding that an earlier finding
+ * is gone (V2-COR-01, V2-COR-02): a finding that this run did not report is
+ * only fixed if the run checked its URL with that suite.
+ */
+export interface Reached {
+  /** Every URL fetched: crawled pages, checked link targets and files the suites asked for. */
+  all: string[]
+  /** For each suite that ran in the browser stage: the pages it loaded. */
+  bySuite: Record<string, string[]>
+}
+export interface CrawlResult { summary: SummaryRecord; site: SiteState | null; findings: FindingRecord[]; suiteErrors: SuiteError[]; reached: Reached }
 
 interface QueueItem { url: string; depth: number; referer?: string; prefetched?: Outcome }
 
@@ -242,13 +264,30 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     ...(originHeaders ? { originHeaders } : {}),
   })
 
-  const write = async (record: RunLine) => sink.write(record)
+  // A record the protocol refuses (a 5,000-character URL, a status of 600) must cost that record, not
+  // the run: it is noted as an error and the crawl goes on (V2-COR-06). The run and summary records
+  // are the engine's own and are never dropped.
+  const recordErrors: SuiteError[] = []
+  const write = async (record: RunLine) => {
+    if (record.type === 'run' || record.type === 'summary') return sink.write(record)
+    try {
+      await sink.write(record)
+    } catch (error) {
+      const suite = record.type === 'finding' ? record.suite : 'engine'
+      if (recordErrors.length < 50) recordErrors.push({ suite, hook: 'record', ...('url' in record && typeof record.url === 'string' ? { url: record.url.slice(0, 200) } : {}), message: `a ${record.type} record was not valid and was left out: ${(error as Error).message.slice(0, 200)}` })
+    }
+  }
   await write({ type: 'run', protocol_version: PROTOCOL_VERSION, job_id: spec.job_id, started_at: startedAt, runner: deps.runner ?? { name: '@webtrax/engine', version: '0.0.0' }, user_agent: userAgent, spec: redactAuth(spec) })
 
   // Suites: those the spec enables, with their rules validated up front.
   const findings: FindingRecord[] = []
   const findingSeverity = new Map<string, Severity>()
   const emitted = new Set<string>()
+  // What the run looked at (CrawlResult.reached), and the suites whose silence proves nothing.
+  const reachedUrls = new Set<string>()
+  const browserUrls = new Map<CheckSuite, Set<string>>()
+  const skippedSuites = new Set<string>()
+  const incomplete = () => new Set<string>([...skippedSuites, ...suiteErrors.map((e) => e.suite), ...recordErrors.map((e) => e.suite)])
   // Pages each suite looked at in the browser stage, per profile (the summary's `suites[].pages`).
   const browserPages = new Map<CheckSuite, Partial<Record<BrowserProfileId, number>>>()
   // Set by the browser stage while it runs more than one profile.
@@ -302,12 +341,18 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     const record: SummaryRecord = {
       type: 'summary', job_id: spec.job_id, started_at: startedAt, finished_at: new Date(clock.now()).toISOString(),
       findings: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
-      suites: active.map((x) => ({ id: x.id, version: x.version, requires: x.requires, ...(browserPages.has(x) ? { pages: browserPages.get(x)! } : {}) })), ...summary,
+      suites: active.map((x) => ({
+        id: x.id, version: x.version, requires: x.requires,
+        ...(incomplete().has(x.id) ? { complete: false } : {}),
+        ...(skippedSuites.has(x.id) ? { skipped: true } : {}),
+        ...(browserPages.has(x) ? { pages: browserPages.get(x)! } : {}),
+      })), ...summary,
     }
     for (const severity of findingSeverity.values()) record.findings[severity] += 1
     await write(record)
     await ownFetch?.close()
-    return { summary: record, site, findings, suiteErrors }
+    suiteErrors.push(...recordErrors)
+    return { summary: record, site, findings, suiteErrors, reached: { all: [...reachedUrls], bySuite: Object.fromEntries([...browserUrls].map(([suite, urls]) => [suite.id, [...urls]])) } }
   }
 
   // 1. The start URL: reachable, and on this site.
@@ -359,8 +404,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const site: SiteState = { origin, startUrl, requestedStartUrl: spec.target.start_url, robots, pages: new Map(), links: new Map(), edges: [], sitemapUrls }
   const ctxFor = (suite: CheckSuite): SuiteCtx => ({
     spec, config: spec.suites[suite.id]?.config ?? {}, origin, startUrl, requestedStartUrl: spec.target.start_url, emit: emitFor(suite),
-    request: (url) => requester.page(url, undefined, () => true),
-    text: (url, maxBytes = 256 * 1024) => requester.text(url, maxBytes),
+    request: (url) => { reachedUrls.add(normaliseUrl(url) ?? url); return requester.page(url, undefined, () => true) },
+    text: (url, maxBytes = 256 * 1024) => { reachedUrls.add(normaliseUrl(url) ?? url); return requester.text(url, maxBytes) },
     requestAs: (url, device) => requester.as(url, deviceUserAgent(device)),
     metric: async (name, value, unit, url) => {
       const profile = currentProfile ?? spec.browser.profiles[0]!
@@ -384,8 +429,14 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   let pagesCrawled = 0
   let pagesFailed = 0
 
-  const crawlable = (url: string, depth: number) =>
-    isInternal(url) && depth <= spec.limits.max_depth && included(url) && !excluded(url) && queued.size < spec.limits.max_pages
+  // Set when a page that belongs to the crawl was left out by a limit: the run is then partial, not complete (V2-COR-02).
+  let limitHit: StopReason | undefined
+  const crawlable = (url: string, depth: number) => {
+    if (!isInternal(url) || !included(url) || excluded(url) || url.length > opts.maxUrlLength) return false
+    if (depth > spec.limits.max_depth) { limitHit ??= 'depth_limit'; return false }
+    if (queued.size >= spec.limits.max_pages) { limitHit = 'page_limit'; return false }
+    return true
+  }
 
   const enqueue = (item: QueueItem) => {
     queued.add(item.url)
@@ -393,22 +444,45 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   }
 
   const recordLink = (url: string, internalLink: boolean, via: LinkOutcome['via'], o: Pick<Outcome, 'status' | 'error' | 'finalUrl' | 'chain'>) => {
+    if (via !== 'skipped') reachedUrls.add(url)
     site.links.set(url, { url, internal: internalLink, via, status: o.status, ...(o.error ? { error: o.error } : {}), finalUrl: o.finalUrl, chain: o.chain })
   }
 
   /** A link target the crawl will not fetch: check it once (or skip it, for robots). */
+  // At most `linkCheckConcurrency` link checks run at once; the rest wait their turn (V2-COR-05).
+  let checking = 0
+  const waitingChecks: (() => void)[] = []
+  const linkSlot = async () => {
+    if (checking >= opts.linkCheckConcurrency) await new Promise<void>((resolve) => waitingChecks.push(resolve))
+    else checking += 1
+  }
+  const freeLinkSlot = () => {
+    const next = waitingChecks.shift()
+    if (next) next()
+    else checking -= 1
+  }
   const checkLink = (url: string, referer: string) => {
     if (linkChecks.has(url) || queued.has(url) || site.links.has(url)) return
+    if (url.length > opts.maxUrlLength) return
     const internalLink = isInternal(url)
     if (internalLink && !robots.isAllowed(url)) {
       recordLink(url, true, 'skipped', { status: null, error: 'robots_disallowed', finalUrl: url, chain: [] })
       return
     }
     if (!internalLink && !spec.scope.check_external) return
+    if (linkChecks.size >= opts.maxLinkChecks) {
+      site.linksNotChecked = (site.linksNotChecked ?? 0) + 1
+      return
+    }
     linkChecks.set(url, (async () => {
-      if (stopReason) return
-      const o = await requester.link(url, referer)
-      if (!internal.signal.aborted) recordLink(url, internalLink, 'check', o)
+      await linkSlot()
+      try {
+        if (stopReason) return
+        const o = await requester.link(url, referer)
+        if (!internal.signal.aborted) recordLink(url, internalLink, 'check', o)
+      } finally {
+        freeLinkSlot()
+      }
     })())
   }
 
@@ -431,6 +505,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
       timing_ms: outcome.timing, ...(outcome.error ? { error: outcome.error } : {}), ...(outcome.contentType ? { content_type: outcome.contentType } : {}),
     }
     recordLink(item.url, true, 'crawl', outcome)
+    // A page cut off at the size limit was not read to its end: links and text after the cut were not seen.
+    if (outcome.truncated) limitHit ??= 'page_truncated'
 
     // Attribute the page to its final URL; a redirect to a page we already have adds nothing new.
     const finalUrl = normaliseUrl(outcome.finalUrl) ?? outcome.finalUrl
@@ -521,6 +597,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const needBrowser = active.some((s) => s.requires.includes('browser') && s.onBrowserPage)
   const browserSuites = needBrowser ? active.filter((s) => s.onBrowserPage) : []
   if ((needBrowser || deps.onHomePage) && !stopReason) await browserStage(browserSuites)
+  // A suite that needs the browser and never got a page said nothing about anything: it is skipped, not clean (V2-COR-01).
+  for (const s of active) if (s.requires.includes('browser') && s.onBrowserPage && !browserPages.has(s)) skippedSuites.add(s.id)
 
   for (const suite of active) if (suite.onSite) await runHook(suite, 'onSite', () => suite.onSite!(contexts.get(suite)!, site))
 
@@ -595,6 +673,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
               const bp: BrowserPage = { url, status: response?.status() ?? null, loadMs: clock.now() - started, page, profile: id }
               loaded += 1
               for (const suite of forSuites) {
+                browserUrls.set(suite, (browserUrls.get(suite) ?? new Set()).add(url))
                 const counted = browserPages.get(suite) ?? {}
                 counted[id] = (counted[id] ?? 0) + 1
                 browserPages.set(suite, counted)
@@ -641,8 +720,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const targets = [...new Set(site.edges.map((e) => e.to))].map((url) => site.links.get(url)).filter((o): o is LinkOutcome => !!o)
   return finish(
     {
-      status: stopReason ? 'partial' : 'completed',
-      ...(stopReason ? { stop_reason: stopReason } : {}),
+      status: stopReason ?? limitHit ? 'partial' : 'completed',
+      ...(stopReason ?? limitHit ? { stop_reason: (stopReason ?? limitHit)! } : {}),
       pages: { crawled: pagesCrawled, failed: pagesFailed },
       links: { checked: targets.filter((o) => o.via !== 'skipped').length, broken: targets.filter(isBrokenOutcome).length },
     },

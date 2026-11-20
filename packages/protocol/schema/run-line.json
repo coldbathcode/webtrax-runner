@@ -1027,7 +1027,10 @@
           "type": "string",
           "enum": [
             "time_budget",
-            "canceled"
+            "canceled",
+            "page_limit",
+            "depth_limit",
+            "page_truncated"
           ]
         },
         "started_at": {
@@ -1151,6 +1154,12 @@
                     "active-probe"
                   ]
                 }
+              },
+              "complete": {
+                "type": "boolean"
+              },
+              "skipped": {
+                "type": "boolean"
               },
               "pages": {
                 "type": "object",

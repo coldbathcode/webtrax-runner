@@ -59,3 +59,14 @@ describe('safety and limits', () => {
     expect(parseNdjson(renderNdjson(RECORDS)).every((l) => l.ok)).toBe(true)
   })
 })
+
+describe('what a run could not vouch for', () => {
+  it('names checks that did not run or ran with errors, and a crawl that stopped at its own limit', async () => {
+    const { caveatText } = await import('../src/model')
+    const base = report.summary
+    expect(caveatText({ ...base, status: 'completed', stop_reason: undefined, suites: [{ id: 'links', version: '1', requires: ['http'] }] })).toBeNull()
+    expect(caveatText({ ...base, stop_reason: 'page_limit', suites: [
+      { id: 'links', version: '1', requires: ['http'] }, { id: 'a11y', version: '1', requires: ['http', 'browser'], complete: false, skipped: true }, { id: 'seo', version: '1', requires: ['http'], complete: false },
+    ] })).toBe('Did not run: a11y. Ran with errors, so may have missed issues: seo. The site has more pages than this run may crawl: the rest were not checked.')
+  })
+})

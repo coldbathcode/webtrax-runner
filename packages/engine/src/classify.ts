@@ -35,8 +35,17 @@ export function retryAfterMs(header: string | null, now: number, maxMs = 120_000
   return Number.isFinite(ms) ? Math.min(Math.max(ms, 0), maxMs) : fallbackMs
 }
 
+/**
+ * Answers that say "not for you", not "not there": a sign-in is needed (401,
+ * 407), the request was refused (403, 406), the page is withheld (451), or a
+ * bot wall answered (LinkedIn's 999). The target may be perfectly fine for a
+ * visitor, so it is never broken: it could not be verified (V2-COR-03).
+ */
+export const UNVERIFIABLE_STATUSES: ReadonlySet<number> = new Set([401, 403, 406, 407, 451, 999])
+export const couldNotVerify = (o: { status: number | null; error?: FetchError | undefined }): boolean => !o.error && o.status !== null && UNVERIFIABLE_STATUSES.has(o.status)
+
 /** What counts as a broken link target in the run summary (the links suite owns the findings, C05.4). */
 export function isBrokenOutcome(o: { status: number | null; error?: FetchError | undefined }): boolean {
   if (o.error) return o.error !== 'rate_limited' && o.error !== 'robots_disallowed'
-  return o.status !== null && o.status >= 400 && o.status !== 429
+  return o.status !== null && o.status >= 400 && o.status !== 429 && !UNVERIFIABLE_STATUSES.has(o.status)
 }

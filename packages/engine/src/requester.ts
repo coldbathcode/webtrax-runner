@@ -48,8 +48,14 @@ export interface RequesterOptions {
   originHeaders?: { origin: string; headers: Record<string, string> }
 }
 
-/** Statuses after HEAD that are worth confirming with GET: some servers and CDNs mishandle HEAD. */
-const HEAD_FALLBACK = new Set([403, 404, 405, 501])
+/**
+ * A HEAD that failed says little: servers and CDNs answer HEAD with 400, 403,
+ * 404, 405, 500 or 503, hang, or reset the connection, and serve the same URL
+ * to a GET. So every HEAD failure is confirmed with one GET before a link is
+ * called broken (V2-COR-04). Rate limiting is not a failure: it is waited out.
+ */
+const headFailed = (a: { status: number | null; retryAfter?: string | null | undefined }) =>
+  a.status === null || (a.status >= 400 && a.status !== 429 && !(a.status === 503 && !!a.retryAfter))
 const HTML = /text\/html|application\/xhtml\+xml/i
 
 /** One exchange, with what the retry logic needs to know. */
@@ -162,7 +168,7 @@ export function createRequester(o: RequesterOptions) {
     link: (url: string, referer?: string) =>
       withRetries(async () => {
         const head = await once(url, { method: 'HEAD', referer, read: () => false, maxBytes: 0, manual: false })
-        if (head.status === null || !HEAD_FALLBACK.has(head.status)) return head
+        if (!headFailed(head)) return head
         const get = await once(url, { method: 'GET', referer, read: () => false, maxBytes: 0, manual: false })
         return { ...get, requests: get.requests + head.requests }
       }),

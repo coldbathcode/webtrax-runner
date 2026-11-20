@@ -6,7 +6,7 @@
  * crawled site is escaped; only http(s) URLs become links.
  */
 import { SEVERITIES } from '@webtrax/protocol'
-import { countsText, durationText, kilobytes, PROFILE_LABELS, seconds, speedProfiles, statusText, target, type FindingGroup, type Report, type SpeedRow } from './model'
+import { caveatText, countsText, durationText, kilobytes, PROFILE_LABELS, seconds, speedProfiles, statusText, target, type FindingGroup, type Report, type SpeedRow } from './model'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 /** Lab speed by browser profile, the slowest pages first. Empty without measurements. */
@@ -99,7 +99,7 @@ export function renderHtml(r: Report): string {
 <div><dt>Links checked</dt><dd>${s.links.checked}</dd></div>
 <div><dt>Broken links</dt><dd>${s.links.broken}</dd></div>
 </dl>
-<p>${esc(countsText(r.counts))}.${r.score.score === null ? '' : ' <a href="https://docs.webtrax.dev/health-score/">How the health score is worked out</a>.'}</p>
+${caveatText(s) ? `<p><strong>Not the whole picture.</strong> ${esc(caveatText(s)!)}</p>\n` : ''}<p>${esc(countsText(r.counts))}.${r.score.score === null ? '' : ' <a href="https://docs.webtrax.dev/health-score/">How the health score is worked out</a>.'}</p>
 </section>
 <section aria-labelledby="findings">
 <h2 id="findings">Findings</h2>

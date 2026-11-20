@@ -238,6 +238,15 @@ export const SummaryRecord = z.object({
   findings: SeverityCounts,
   suites: z.array(z.object({
     id: SuiteEnum, version: z.string(), requires: z.array(z.enum(CAPABILITIES)),
+    /**
+     * False when the suite's results are not the whole picture: one of its
+     * hooks threw, or the browser stage it needs did not run. Its findings
+     * still stand; what it did not report is not evidence of a fix, and a
+     * suite that never ran at all is left out of the health score.
+     */
+    complete: z.boolean().optional(),
+    /** True when the suite produced nothing because the stage it needs never ran (the browser failed to start, or the run stopped first). */
+    skipped: z.boolean().optional(),
     /** For a suite that ran in the browser stage: the pages it looked at, per browser profile (Health Score v2). */
     pages: z.partialRecord(z.enum(BROWSER_PROFILES), z.int().min(0)).optional(),
   })),

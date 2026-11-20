@@ -11,7 +11,7 @@
  * Not yet: `links.anchor.missing` and `links.asset.broken` (need the browser
  * stage or asset checks, C05.10).
  */
-import { linkProblem, type CheckSuite, type LinkOutcome, type SiteState, type SuiteCtx } from '@webtrax/engine'
+import { couldNotVerify, linkProblem, type CheckSuite, type LinkOutcome, type SiteState, type SuiteCtx } from '@webtrax/engine'
 import { normaliseUrl, type RuleMeta } from '@webtrax/protocol'
 
 const rule = (id: string, severity: RuleMeta['severity'], title: string, why: string, fix: string): RuleMeta => ({
@@ -34,6 +34,8 @@ export const LINK_RULES = [
   rule('links.scheme.invalid', 'low', 'Phone, text or email link that cannot work', 'A tel:, sms: or mailto: link opens the visitor\'s phone or mail app with what follows it. When that is not a number or an address, tapping it does nothing or dials the wrong thing.', 'Write the number in international form with digits only (tel:+442079460000) and the address as it is (mailto:name@example.com). Keep words and spaces for the link\'s text.'),
   rule('links.device.response_differs', 'medium', 'Page answers a phone or a desktop browser differently', 'The same address gave one kind of visitor a working page and another an error. It is usually a redirect for phones to an address that no longer exists, or a rule on the server that turns some browsers away.', 'Open the address in that kind of browser and follow where it goes. Fix or remove the redirect, or the server rule, that sends it somewhere broken.'),
   rule('links.app.association_invalid', 'medium', 'App link file is missing or wrong', 'Links that should open your app need a file the phone fetches from your site: apple-app-site-association for iOS, assetlinks.json for Android. When it is missing, not valid JSON, redirected or served as the wrong type, the phone ignores it and the links open in the browser.', 'Serve the file at /.well-known/ with status 200, no redirect, as application/json, with the content Apple or Google documents for it.'),
+  rule('links.unverified', 'info', 'Link could not be checked', 'The linked page asked for a sign-in or turned the check away (401, 403, 406, 407, 451 or a bot wall). That says nothing about whether it works for a visitor, so it is not counted as broken.', 'Nothing to fix unless the link should be public. Open it in a browser to see what a visitor gets.'),
+  rule('links.not_checked', 'info', 'Some links were not checked', 'The scan checks a set number of distinct link targets. This site has more, so the rest were left unchecked rather than guessed at.', 'Nothing to fix. To check them all, scan a smaller part of the site at a time (scope.include), or raise the limit on a plan that allows it.'),
   rule('links.host_rate_limited', 'info', 'A host kept rate limiting the crawl', 'Some links on this host could not be checked; they are not reported as broken.', 'Allow WebtraxBot a higher rate (see webtrax.dev/bot), or lower the crawl rate.'),
 ] satisfies RuleMeta[]
 
@@ -88,7 +90,6 @@ export function associationProblems(kind: 'apple' | 'android', o: { body?: strin
 export const DEVICE_SAMPLE = 10
 export const BOT_WALL_SAMPLE = 20
 const working = (o: { status: number | null; error?: unknown }) => o.status !== null && o.status < 400 && !o.error
-const refusedStatus = (s: number | null) => s === 401 || s === 403 || s === 406 || s === 429 || s === 503
 /** Pages that declare an Android app link, per crawl. */
 const androidLinks = new WeakMap<SuiteCtx, string>()
 
@@ -209,19 +210,28 @@ export const linksSuite: CheckSuite = {
       })
     }
 
-    // Links only Webtrax was refused: a bot wall, not a broken link. Said once per link, as information.
+    // Links that asked for a sign-in or turned the check away are never broken (V2-COR-03): said once
+    // each, as information. The first few are asked for again as a browser: one that then answers is a
+    // bot wall, and says so.
     const refused = [...new Set(site.edges.filter((e) => e.kind === 'link').map((e) => e.to))]
-      .map((url) => site.links.get(url)).filter((o): o is LinkOutcome => !!o && refusedStatus(o.status))
-      .slice(0, BOT_WALL_SAMPLE)
-    for (const o of refused) {
-      const desktop = await ctx.requestAs(o.url, 'desktop')
-      if (!working(desktop)) continue
-      await ctx.emit({
-        rule_id: 'links.device.response_differs', url: o.url, evidence_key: 'bot', severity: 'info',
-        title: 'Link answers browsers but refuses Webtrax',
-        evidence: { webtrax: { status: o.status }, desktop: { status: desktop.status }, note: 'The site turns automated checks away, so this link is probably not broken for visitors.' },
-      })
+      .map((url) => site.links.get(url)).filter((o): o is LinkOutcome => !!o && couldNotVerify(o))
+    for (const [i, o] of refused.entries()) {
+      const desktop = i < BOT_WALL_SAMPLE ? await ctx.requestAs(o.url, 'desktop') : null
+      if (desktop && working(desktop)) {
+        await ctx.emit({
+          rule_id: 'links.device.response_differs', url: o.url, evidence_key: 'bot', severity: 'info',
+          title: 'Link answers browsers but refuses Webtrax',
+          evidence: { webtrax: { status: o.status }, desktop: { status: desktop.status }, note: 'The site turns automated checks away, so this link is probably not broken for visitors.' },
+        })
+      } else {
+        await ctx.emit({
+          rule_id: 'links.unverified', url: o.url,
+          title: o.status === 401 || o.status === 407 ? 'Link asks for a sign-in' : 'Link turned the check away',
+          evidence: { status: o.status, ...(o.internal ? { internal: true } : {}) },
+        })
+      }
     }
+    if (site.linksNotChecked) await ctx.emit({ rule_id: 'links.not_checked', url: null, title: `${site.linksNotChecked} link${site.linksNotChecked === 1 ? ' was' : 's were'} not checked`, evidence: { not_checked: site.linksNotChecked } })
 
     // App links: the files phones fetch to open links in an app.
     for (const [kind, path] of [['apple', '/.well-known/apple-app-site-association'], ['android', '/.well-known/assetlinks.json']] as const) {

@@ -102,6 +102,16 @@ describe('health score v2', () => {
     expect(r).toMatchObject({ score: 82, grade: 'B' })
   })
 
+  it('leaves out a suite that was asked for and never ran, instead of scoring it as clean', () => {
+    const findings = [f('links.broken', 'links', 'high', null)]
+    const ran = healthScore({ findings, pages: 10, suites: ['links', { id: 'a11y', pages: { desktop: 5 } }, { id: 'performance', pages: { desktop: 5 } }] })
+    const skipped = healthScore({ findings, pages: 10, suites: ['links', { id: 'a11y', skipped: true }, { id: 'performance', skipped: true }] })
+    expect(ran.suites.map((s) => s.suite)).toEqual(['links', 'performance', 'a11y'])
+    expect(skipped.suites.map((s) => s.suite)).toEqual(['links'])
+    // Two clean suites it never ran would have lifted the score from 66 to 86.
+    expect([ran.score, skipped.score]).toEqual([86, 66])
+  })
+
   it('with one device, or findings from before profiles, scores as a single measurement', () => {
     const findings = [f('a11y.image_alt', 'a11y', 'high', 'https://site.example/a')]
     const one = healthScore({ findings, pages: 50, suites: [{ id: 'a11y', pages: { desktop: 25 } }] })

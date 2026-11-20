@@ -53,13 +53,15 @@ beforeAll(async () => {
     const phone = /Mobile/.test(ua)
     const browser = /Chrome\//.test(ua)
     const html = (status: number, body: string) => { res.writeHead(status, { 'content-type': 'text/html' }); res.end(body) }
-    if (req.url === '/') return html(200, page('Home', '<a href="/phones">phones</a> <a href="/wall">wall</a> <a href="/fine">fine</a> <a href="tel:0800 CALL NOW">Call us</a> <a href="tel:+442079460000">or here</a> <a href="mailto:hello at example.com">Email</a> <a href="mailto:hello@example.com">Email</a>', '<link rel="alternate" href="android-app://com.example/https/example.com/">'))
+    if (req.url === '/') return html(200, page('Home', '<a href="/phones">phones</a> <a href="/wall">wall</a> <a href="/fine">fine</a> <a href="/account">account</a> <a href="tel:0800 CALL NOW">Call us</a> <a href="tel:+442079460000">or here</a> <a href="mailto:hello at example.com">Email</a> <a href="mailto:hello@example.com">Email</a>', '<link rel="alternate" href="android-app://com.example/https/example.com/">'))
     // Phones are sent to a mobile address that no longer exists.
     if (req.url === '/phones') { if (phone) { res.writeHead(302, { location: '/m/phones' }); return res.end() } return html(200, page('Phones', '<p>For everyone.</p>')) }
     if (req.url === '/m/phones') return html(404, page('Not found', ''))
     // Automated checks are turned away; browsers are served.
     if (req.url === '/wall') return browser ? html(200, page('Wall', '<p>Hello.</p>')) : html(403, 'Forbidden')
     if (req.url === '/fine') return html(200, page('Fine', '<p>Same for all.</p>'))
+    // Needs a sign-in, whoever asks.
+    if (req.url === '/account') { res.writeHead(401, { 'content-type': 'text/html' }); return res.end('Sign in') }
     if (req.url === '/.well-known/assetlinks.json') {
       if (assetlinks === 'bad') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('[{"relation": "oops"}]') }
       if (assetlinks === 'spa') return html(200, page('App', '<div id="app"></div>'))
@@ -90,6 +92,10 @@ describe('links by device on a site', () => {
       { url: '/phones', severity: 'medium', title: 'Page fails for a phone browser', evidence: { webtrax: { status: 200 }, phone: { status: 404, final_url: `${origin}/m/phones` }, desktop: { status: 200 } } },
       { url: '/wall', severity: 'info', title: 'Link answers browsers but refuses Webtrax', evidence: { webtrax: { status: 403 }, desktop: { status: 200 }, note: expect.stringContaining('probably not broken') } },
     ])
+    // The sign-in page is not broken, and neither is the bot wall: one line of information each, and no broken link.
+    expect(of(r, 'links.unverified')).toEqual([{ url: '/account', severity: 'info', title: 'Link asks for a sign-in', evidence: { status: 401, internal: true } }])
+    expect(r.findings.filter((f) => f.rule_id.startsWith('links.broken'))).toEqual([])
+    expect(r.summary.links.broken).toBe(0)
     expect(of(r, 'links.scheme.invalid').map((f) => [f.url, f.title, f.evidence.href])).toEqual([
       ['/', 'tel: link "0800 CALL NOW" has letters in the number', 'tel:0800 CALL NOW'],
       ['/', 'mailto: link "hello at example.com" is not an email address', 'mailto:hello at example.com'],
