@@ -59,6 +59,8 @@ describe('copyright year', () => {
     expect(copyrightYear('© 2020 A\n© 2026 B')!.year).toBe(2026)
     expect(copyrightYear('Founded in 1999. Call 2020 555 0100.')).toBeNull()
     expect(copyrightYear('© Shop Ltd')).toBeNull()
+    // A sentence about copyright is not a notice (this was the suite's own help text, on its docs page).
+    expect(copyrightYear('Update the year, or print the current year from your template so it never falls behind (for example "© 2019 to this year"), then deploy.')).toBeNull()
   })
 })
 

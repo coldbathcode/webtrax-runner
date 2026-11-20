@@ -24,7 +24,7 @@ const rule = (id: string, severity: RuleMeta['severity'], title: string, why: st
 
 export const CONTENT_RULES = [
   rule('content.placeholder', 'high', 'Placeholder text left on the page', 'Filler text, an unrendered template tag or a value that printed as "undefined" tells visitors the page was not finished or is broken, and search engines index it as written.', 'Replace the text with the real content, or fix the template or script that should have filled it in. The evidence quotes what was found.'),
-  rule('content.copyright_stale', 'low', 'Copyright year is out of date', 'A footer that still shows an earlier year makes a site look unattended, which costs trust before a visitor has read anything.', 'Update the year, or print the current year from your template so it never falls behind (for example "© 2019 to this year").'),
+  rule('content.copyright_stale', 'low', 'Copyright year is out of date', 'A footer that still shows an earlier year makes a site look unattended, which costs trust before a visitor has read anything.', 'Update the year, or print the current year from your template so it never falls behind. A range from the first year to the current one also works.'),
   rule('content.empty_page', 'medium', 'Page has almost no content', 'A page that loads but has next to nothing to read is a dead end for visitors and is treated as thin content by search engines. It is often a template without its data or a page that was never written.', 'Add the content the page is for, redirect it to a page that has it, or remove it and the links to it. If the content only appears with JavaScript, send it in the HTML.'),
   rule('content.duplicate', 'low', 'Pages with the same content', 'When several URLs carry the same text, search engines pick one and may pick the wrong one, links are split between them, and visitors land on copies.', 'Keep one page and redirect the others to it, or give each a canonical link to the one that should be listed. If the pages are meant to differ, give each its own text.'),
 ] satisfies RuleMeta[]
@@ -88,11 +88,15 @@ export function findPlaceholders(text: string, opts: { loneValues?: boolean } = 
   return [...found].map(([kind, quote]) => ({ kind, quote }))
 }
 
+export const COPYRIGHT_MAX_LINE = 120
+
 /** The latest year a copyright notice names: "© 2019", "(c) 2015-2021", "Copyright 2020 to 2023". Null without one. */
 export function copyrightYear(text: string): { year: number; quote: string } | null {
   let best: { year: number; quote: string } | null = null
   const re = /(?:©|\(c\)|&copy;|\bcopyright\b)(?:\s*(?:©|\(c\)))?[^\n\d]{0,40}?((?:19|20)\d{2})(?:\s*(?:[-–—]|to)\s*((?:19|20)?\d{2,4}))?/gi
   for (const line of text.split('\n')) {
+    // A notice is a short line of its own; a longer sentence is writing about copyright.
+    if (line.length > COPYRIGHT_MAX_LINE) continue
     for (const m of line.matchAll(re)) {
       const first = Number(m[1])
       let last = first
