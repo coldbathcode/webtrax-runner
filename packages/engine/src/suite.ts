@@ -14,7 +14,7 @@
  * `onBrowserPage` arrive with the browser stage (C05.10).
  */
 import type { Page } from 'playwright-core'
-import type { Capability, FetchError, JobSpec, RuleMeta, Severity, SuiteId } from '@webtrax/protocol'
+import type { BrowserProfileId, Capability, FetchError, JobSpec, RuleMeta, Severity, SuiteId } from '@webtrax/protocol'
 import type { CrawledPage, SiteState } from './engine'
 import type { Outcome } from './requester'
 
@@ -58,6 +58,8 @@ export interface BrowserPage {
   /** Time from navigation start to the load event, as the runner measured it. */
   loadMs: number
   page: Page
+  /** The browser profile the page was loaded as (C06.10). */
+  profile: BrowserProfileId
 }
 
 export interface CheckSuite {
@@ -75,6 +77,13 @@ export interface CheckSuite {
    * joins the stage only when another active suite caused it.
    */
   onBrowserPage?(ctx: SuiteCtx, page: BrowserPage): void | Promise<void>
+  /**
+   * Also run on the pages loaded as each further browser profile (phone, …).
+   * For suites whose results depend on the device. Default: the first profile
+   * only. Findings it emits on several profiles become one, listing them in
+   * `evidence.profiles` with the worst severity.
+   */
+  everyProfile?: boolean
   /** Which crawled pages get the browser stage; default: the shallowest 200 HTML pages, up to `sample`. */
   selectPages?(site: SiteState, config: Record<string, unknown>): string[]
   /** Pages for the default selection when the config sets no `sample`. */

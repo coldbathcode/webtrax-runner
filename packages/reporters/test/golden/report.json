@@ -79,6 +79,23 @@
       }
     ]
   },
+  "speed": [
+    {
+      "url": "https://shop.example/",
+      "profiles": {
+        "desktop": {
+          "lcp_ms": 1240,
+          "cls": 0.02,
+          "transfer_bytes": 412000
+        },
+        "phone": {
+          "lcp_ms": 4810,
+          "cls": 0.31,
+          "transfer_bytes": 1260000
+        }
+      }
+    }
+  ],
   "findings": [
     {
       "id": "aaaaaaaaaa",

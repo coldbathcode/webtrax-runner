@@ -21,6 +21,15 @@ export const atLeast = (s: Severity, threshold: Severity): boolean => severityRa
 export const RUN_STATUSES = ['completed', 'partial', 'failed', 'canceled'] as const
 export type RunStatus = (typeof RUN_STATUSES)[number]
 
+/**
+ * Browser profiles (C06.10): what the browser stage loads a page as.
+ * `desktop` is Chromium at laptop size on a fast line; `phone` is Chromium
+ * as a mid-range phone (small touch viewport, CPU four times slower, a slow
+ * 4G line). Neither is a real device.
+ */
+export const BROWSER_PROFILES = ['desktop', 'phone'] as const
+export type BrowserProfileId = (typeof BROWSER_PROFILES)[number]
+
 /** What a suite needs from the runner. */
 export const CAPABILITIES = ['http', 'browser', 'dns', 'tls', 'active-probe'] as const
 export type Capability = (typeof CAPABILITIES)[number]

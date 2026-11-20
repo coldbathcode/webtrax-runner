@@ -8,7 +8,7 @@ import { isIP } from 'node:net'
 import { resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
-import { SEVERITIES, type JobSpecInput, type Severity, type SuiteId } from '@webtrax/protocol'
+import { BROWSER_PROFILES, SEVERITIES, type BrowserProfileId, type JobSpecInput, type Severity, type SuiteId } from '@webtrax/protocol'
 
 export const CONFIG_FILE = 'webtrax.yml'
 export const AVAILABLE_SUITES = ['links', 'security', 'seo', 'content', 'ai_readiness', 'a11y', 'performance'] as const satisfies readonly SuiteId[]
@@ -36,6 +36,8 @@ const Config = z.strictObject({
     time_budget_s: z.int().positive().optional(),
   }).optional(),
   suites: z.partialRecord(z.enum(AVAILABLE_SUITES), z.strictObject({ enabled: z.boolean() })).optional(),
+  /** Browser profiles the browser suites load pages as: `desktop` (default), `phone`, or both. */
+  browser: z.strictObject({ profiles: z.array(z.enum(BROWSER_PROFILES)).min(1).max(BROWSER_PROFILES.length) }).optional(),
   /** The content suite's settings. `dictionary`: terms the site should no longer use, each with what to use instead. */
   content: z.strictObject({
     dictionary: z.array(z.union([z.string().min(2).max(80), z.strictObject({ term: z.string().min(2).max(80), use: z.string().max(120).optional() })])).max(200).optional(),
@@ -91,6 +93,8 @@ export interface CheckFlags {
   suites?: AvailableSuite[]
   /** Add the browser suites (a11y, performance) to whatever else runs. */
   browser?: boolean
+  /** Browser profiles to load pages as (`--profile desktop,phone`); turns the browser suites on. */
+  profiles?: BrowserProfileId[]
   allowPrivate?: boolean
   ignoreRobots?: boolean
   noExternal?: boolean
@@ -116,7 +120,8 @@ export function buildSpec(config: Config, flags: CheckFlags, jobId: string): Job
   if (!target) throw new ConfigError('no URL to check: pass one (webtrax check https://example.com) or set target in webtrax.yml')
   const startUrl = normaliseTarget(target)
   const base = flags.suites ?? AVAILABLE_SUITES.filter((s) => config.suites?.[s]?.enabled ?? DEFAULT_SUITES.includes(s))
-  const suites = flags.browser ? [...new Set([...base, ...BROWSER_SUITES])] : base
+  const profiles = flags.profiles ?? config.browser?.profiles
+  const suites = flags.browser || flags.profiles ? [...new Set([...base, ...BROWSER_SUITES])] : base
   const limits = config.limits ?? {}
   return {
     spec_version: 1,
@@ -138,6 +143,7 @@ export function buildSpec(config: Config, flags: CheckFlags, jobId: string): Job
     },
     suites: Object.fromEntries(suites.map((s) => [s, { enabled: true, ...(s === 'content' && config.content?.dictionary?.length ? { config: { dictionary: config.content.dictionary } } : {}) }])),
     ...(flags.headers && Object.keys(flags.headers).length ? { auth: { headers: flags.headers } } : {}),
+    ...(profiles ? { browser: { profiles } } : {}),
     labels: { source: 'cli' },
   }
 }
@@ -168,6 +174,13 @@ export function parseSuites(value: string): AvailableSuite[] {
   const bad = list.filter((s) => !(AVAILABLE_SUITES as readonly string[]).includes(s))
   if (bad.length || !list.length) throw new ConfigError(`--suites takes a comma-separated list of: ${AVAILABLE_SUITES.join(', ')}`)
   return list as AvailableSuite[]
+}
+
+export function parseProfiles(value: string): BrowserProfileId[] {
+  const list = [...new Set(value.split(',').map((s) => s.trim()).filter(Boolean))]
+  const bad = list.filter((s) => !(BROWSER_PROFILES as readonly string[]).includes(s))
+  if (bad.length || !list.length) throw new ConfigError(`--profile takes a comma-separated list of: ${BROWSER_PROFILES.join(', ')}`)
+  return list as BrowserProfileId[]
 }
 
 export function configTemplate(target: string): string {

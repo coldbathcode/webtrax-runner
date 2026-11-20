@@ -31,3 +31,11 @@
 - **A rule the reporter has no metadata for** `seo.unknown_rule` `dddddddddd`
   - URL: site-wide
   - Evidence: examples: javascript:alert(1), https://x.example/
+
+### Speed by device
+
+Lab measurements from one load each (largest contentful paint, layout shift, page weight). Phone is Chromium as a mid-range phone on slow 4G, not a real device.
+
+| Page | Desktop LCP | Desktop CLS | Desktop weight | Phone LCP | Phone CLS | Phone weight |
+|---|---|---|---|---|---|---|
+| <https://shop.example/> | 1.2 s | 0.02 | 412 kB | 4.8 s | 0.31 | 1.3 MB |

@@ -147,6 +147,24 @@ describe('webtrax.yml', () => {
   })
 })
 
+describe('--profile', () => {
+  it('measures pages as a desktop and as a phone, and reports both; an unknown profile is a usage error', async () => {
+    fresh()
+    const t = io()
+    expect(await main(['check', `${fixture.origin}/`, ...FAST, '--max-pages', '3', '--suites', 'links', '--profile', 'desktop,phone', '--fail-on', 'none', '--stdout', 'json'], t.io)).toBe(EXIT.ok)
+    const json = JSON.parse(t.out()) as { summary: { suites: { id: string }[] }; speed: { url: string; profiles: Record<string, { load_ms?: number; transfer_bytes?: number }> }[] }
+    // --profile turns the browser suites on.
+    expect(json.summary.suites.map((s) => s.id)).toEqual(['links', 'a11y', 'performance'])
+    expect(json.speed.length).toBeGreaterThan(0)
+    for (const row of json.speed) {
+      expect(Object.keys(row.profiles)).toEqual(['desktop', 'phone'])
+      expect(row.profiles.phone!.load_ms).toBeGreaterThan(0)
+    }
+    expect(readFileSync(join(cwd, '.webtrax', 'runs', runs()[0]!, 'report.md'), 'utf8')).toContain('| Page | Desktop LCP | Desktop CLS | Desktop weight | Phone LCP | Phone CLS | Phone weight |')
+    expect(await main(['check', `${fixture.origin}/`, '--profile', 'tablet'], io().io)).toBe(EXIT.usage)
+  }, 120_000)
+})
+
 describe('webtrax.yml content.dictionary', () => {
   it('hands the site\'s list of terms to the content suite, and refuses a malformed list', async () => {
     fresh()

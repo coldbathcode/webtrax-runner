@@ -5,6 +5,8 @@
  * bytes and request count, recorded as metrics, with findings at the Core
  * Web Vitals thresholds. Measured through the runner's egress proxy on one
  * load, so treat values as indicative and compare runs, not single numbers.
+ * Measured once per browser profile (C06.10): as a desktop, and as a phone
+ * when the run asks for it.
  */
 import type { CheckSuite } from '@webtrax/engine'
 import type { RuleMeta, Severity } from '@webtrax/protocol'
@@ -67,9 +69,14 @@ export const performanceSuite: CheckSuite = {
   requires: ['http', 'browser'],
   rules: PERFORMANCE_RULES,
   defaultSample: 10,
+  // Speed depends on the device: measured as each browser profile (desktop, phone).
+  everyProfile: true,
 
   async onBrowserPage(ctx, bp) {
     if (bp.status === null || bp.status >= 400) return
+    // On a slow line fonts and images are still arriving at the load event: wait for them (five seconds
+    // at most), or the page's weight is under-counted.
+    await bp.page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {})
     const m = (await bp.page.evaluate(MEASURE)) as Measured
     await ctx.metric('ttfb_ms', Math.round(m.ttfb), 'ms', bp.url)
     if (m.fcp !== null) await ctx.metric('fcp_ms', Math.round(m.fcp), 'ms', bp.url)
@@ -78,7 +85,12 @@ export const performanceSuite: CheckSuite = {
     await ctx.metric('transfer_bytes', m.bytes, 'bytes', bp.url)
     await ctx.metric('requests', m.requests, 'count', bp.url)
     await ctx.metric('load_ms', Math.round(bp.loadMs), 'ms', bp.url)
-    for (const f of assess(m)) await ctx.emit({ ...f, url: bp.url })
+    for (const f of assess(m)) {
+      // Time to first byte on the phone profile is mostly the slow line's handshakes, not the server:
+      // it is recorded as a metric, and only the desktop measurement can say the server is slow.
+      if (f.rule_id === 'performance.ttfb.slow' && bp.profile !== 'desktop') continue
+      await ctx.emit({ ...f, url: bp.url })
+    }
   },
 }
 

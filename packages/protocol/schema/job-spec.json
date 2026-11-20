@@ -251,6 +251,36 @@
         }
       }
     },
+    "browser": {
+      "default": {
+        "profiles": [
+          "desktop"
+        ]
+      },
+      "type": "object",
+      "properties": {
+        "profiles": {
+          "default": [
+            "desktop"
+          ],
+          "minItems": 1,
+          "maxItems": 2,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "phone"
+            ]
+          }
+        },
+        "extra_profile_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      }
+    },
     "user_agent": {
       "type": "string",
       "maxLength": 500

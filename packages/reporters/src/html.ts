@@ -6,9 +6,29 @@
  * crawled site is escaped; only http(s) URLs become links.
  */
 import { SEVERITIES } from '@webtrax/protocol'
-import { countsText, durationText, statusText, target, type FindingGroup, type Report } from './model'
+import { countsText, durationText, kilobytes, PROFILE_LABELS, seconds, speedProfiles, statusText, target, type FindingGroup, type Report, type SpeedRow } from './model'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+/** Lab speed by browser profile, the slowest pages first. Empty without measurements. */
+function speedSection(r: Report): string {
+  const profiles = speedProfiles(r.speed)
+  if (!profiles.length) return ''
+  const worst = (row: SpeedRow) => Math.max(...profiles.map((p) => row.profiles[p]?.lcp_ms ?? 0))
+  const rows = [...r.speed].sort((a, b) => worst(b) - worst(a)).slice(0, 50)
+  return `<section aria-labelledby="speed">
+<h2 id="speed">Speed by device</h2>
+<p class="muted">Lab measurements from one load each. Phone is Chromium as a mid-range phone on slow 4G, not a real device.</p>
+<table>
+<caption>Largest contentful paint, layout shift and page weight for ${rows.length} of ${r.speed.length} page${r.speed.length === 1 ? '' : 's'}</caption>
+<thead><tr><th scope="col">Page</th>${profiles.map((p) => `<th scope="col">${PROFILE_LABELS[p]} LCP</th><th scope="col">${PROFILE_LABELS[p]} CLS</th><th scope="col">${PROFILE_LABELS[p]} weight</th>`).join('')}</tr></thead>
+<tbody>
+${rows.map((row) => `<tr><th scope="row">${link(row.url)}</th>${profiles.map((p) => `<td>${seconds(row.profiles[p]?.lcp_ms)}</td><td>${row.profiles[p]?.cls ?? '—'}</td><td>${kilobytes(row.profiles[p]?.transfer_bytes)}</td>`).join('')}</tr>`).join('\n')}
+</tbody>
+</table>
+</section>
+`
+}
+
 const link = (url: string) => (/^https?:\/\//i.test(url) ? `<a href="${esc(url)}">${esc(url)}</a>` : esc(url))
 const label = (s: string) => `${s[0]!.toUpperCase()}${s.slice(1)}`
 
@@ -85,7 +105,7 @@ export function renderHtml(r: Report): string {
 <h2 id="findings">Findings</h2>
 ${findings || '<p>No findings.</p>'}
 </section>
-<section aria-labelledby="pages">
+${speedSection(r)}<section aria-labelledby="pages">
 <h2 id="pages">Pages</h2>
 <table>
 <caption>${r.pages.length} URL${r.pages.length === 1 ? '' : 's'} fetched by the crawl</caption>

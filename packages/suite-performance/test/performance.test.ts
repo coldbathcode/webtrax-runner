@@ -44,4 +44,21 @@ describe('performance suite in Chromium', () => {
     const slow = r.findings.find((f) => f.rule_id === 'performance.ttfb.slow')
     expect(slow?.url).toBe(`${origin}/slow`)
   }, 90_000)
+
+  it('measures as a desktop and as a phone, and the slow line of the phone alone never blames the server', async () => {
+    const sink = new MemorySink()
+    const r = await crawl(
+      { spec_version: 1, job_id: 'd', target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 }, suites: { performance: { enabled: true } }, browser: { profiles: ['desktop', 'phone'] } },
+      { sink, throttle: new HostThrottle(), suites: [performanceSuite] },
+    )
+    expect(r.suiteErrors).toEqual([])
+    const ttfb = (profile: string, path: string) => sink.of('metric').find((m) => m.name === 'ttfb_ms' && m.profile === profile && m.url === `${origin}${path}`)!.value
+    // The phone's line adds its delay to every first byte.
+    expect(ttfb('phone', '/')).toBeGreaterThan(ttfb('desktop', '/') + 50)
+    // /slow is slow on both, but only the desktop measurement can say so about the server.
+    const slow = r.findings.filter((f) => f.rule_id === 'performance.ttfb.slow')
+    expect(slow.map((f) => [f.url, f.evidence.profiles])).toEqual([[`${origin}/slow`, ['desktop']]])
+    // The home page answers at once: the phone's slower first byte is the line, and is not reported.
+    expect(r.findings.filter((f) => f.url === `${origin}/`)).toEqual([])
+  }, 120_000)
 })

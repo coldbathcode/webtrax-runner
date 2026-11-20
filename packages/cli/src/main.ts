@@ -16,7 +16,7 @@ import { atLeast, BOT_USER_AGENT } from '@webtrax/protocol'
 import { buildReport, renderConsole, renderHtml, renderJson, renderJunit, renderMarkdown, renderSarif, shortId } from '@webtrax/reporters'
 import { serveMcp } from './mcp'
 import { listRuns, readRun as readRunAt, RULES, runsDir, SUITES } from './runs'
-import { buildSpec, CONFIG_FILE, ConfigError, configTemplate, loadConfig, normaliseTarget, parseFailOn, parseHeaders, parseSuites, type FailOn } from './config'
+import { buildSpec, CONFIG_FILE, ConfigError, configTemplate, loadConfig, normaliseTarget, parseFailOn, parseHeaders, parseProfiles, parseSuites, type FailOn } from './config'
 
 export const VERSION = typeof __WEBTRAX_VERSION__ === 'string' ? __WEBTRAX_VERSION__ : '0.0.0-dev'
 declare const __WEBTRAX_VERSION__: string | undefined
@@ -52,6 +52,8 @@ Options for check
                          (default: links,security,seo,content,ai_readiness)
   --browser              also run the browser suites (a11y, performance) and the JavaScript-only
                          content check; needs Chromium or Chrome
+  --profile <list>       load pages as desktop, phone or both (desktop,phone): phone is Chromium
+                         as a mid-range phone on slow 4G. Turns --browser on
   --fail-on <severity>   exit 1 at this severity or worse: critical, high, medium, low, info, none (default high)
   --reports <list>       report files to write: html,md,json,sarif,junit (default html,md)
   --out <dir>            where runs are written: <dir>/runs/<time>/ (default ./.webtrax)
@@ -111,7 +113,7 @@ async function check(args: string[], io: Io): Promise<number> {
       config: { type: 'string' }, 'max-pages': { type: 'string' }, 'max-depth': { type: 'string' }, suites: { type: 'string' },
       'fail-on': { type: 'string' }, reports: { type: 'string' }, out: { type: 'string' }, stdout: { type: 'string' }, quiet: { type: 'boolean' },
       'allow-private': { type: 'boolean' }, 'ignore-robots': { type: 'boolean' }, 'no-external': { type: 'boolean' }, rps: { type: 'string' },
-      concurrency: { type: 'string' }, 'time-budget': { type: 'string' }, ignore: { type: 'string' }, browser: { type: 'boolean' },
+      concurrency: { type: 'string' }, 'time-budget': { type: 'string' }, ignore: { type: 'string' }, browser: { type: 'boolean' }, profile: { type: 'string' },
       header: { type: 'string', multiple: true },
     },
   })
@@ -136,6 +138,7 @@ async function check(args: string[], io: Io): Promise<number> {
     ...(values['time-budget'] ? { timeBudget: int('time-budget', values['time-budget'])! } : {}),
     ...(values.suites ? { suites: parseSuites(values.suites) } : {}),
     browser: values.browser ?? false,
+    ...(values.profile ? { profiles: parseProfiles(values.profile) } : {}),
     allowPrivate: values['allow-private'] ?? false,
     ignoreRobots: values['ignore-robots'] ?? false,
     noExternal: values['no-external'] ?? false,

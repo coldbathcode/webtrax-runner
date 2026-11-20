@@ -19,7 +19,7 @@
  */
 import { createGuardedFetch, type GuardedFetch, type RedirectHop } from '@webtrax/net-guard'
 import {
-  BOT_USER_AGENT, fingerprint, JobSpec, normaliseUrl, PROTOCOL_VERSION, RuleMeta, type FetchError, type FindingRecord, type JobSpecInput, type PageRecord,
+  BOT_USER_AGENT, fingerprint, JobSpec, normaliseUrl, PROTOCOL_VERSION, RuleMeta, severityRank, type BrowserProfileId, type FetchError, type FindingRecord, type JobSpecInput, type PageRecord,
   type RunLine, type Severity, type StopReason, type SummaryRecord,
 } from '@webtrax/protocol'
 import { isBrokenOutcome } from './classify'
@@ -31,6 +31,7 @@ import { MemorySink, type Sink } from './sink'
 import type { BrowserPage, CheckSuite, FindingInput, SuiteCtx } from './suite'
 import { startEgressProxy, type Refusal } from '@webtrax/net-proxy'
 import { launchBrowser } from './browser'
+import { PROFILES, phoneUserAgent } from './profiles'
 import { HostThrottle, realClock, sharedThrottle, type ThrottleClock } from './throttle'
 
 export interface EngineOptions {
@@ -91,7 +92,7 @@ export interface SiteState {
   edges: LinkEdge[]
   sitemapUrls: string[]
   /** Set when the browser stage ran: pages loaded, and requests the egress proxy refused. */
-  browser?: { pages: number; refused: Refusal[] }
+  browser?: { pages: number; refused: Refusal[]; profiles?: BrowserProfileId[] }
 }
 
 export interface CrawlDeps {
@@ -248,6 +249,9 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const findings: FindingRecord[] = []
   const findingSeverity = new Map<string, Severity>()
   const emitted = new Set<string>()
+  // Set by the browser stage while it runs more than one profile.
+  let currentProfile: BrowserProfileId | null = null
+  let profileFindings: Map<string, { record: FindingRecord; profiles: BrowserProfileId[] }> | null = null
   const suiteErrors: SuiteError[] = []
   const active = (deps.suites ?? []).filter((suite) => spec.suites[suite.id]?.enabled)
   const rules = new Map<string, { suite: CheckSuite; meta: RuleMeta }>()
@@ -266,12 +270,23 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     const url = input.url === null ? null : (normaliseUrl(input.url) ?? input.url)
     const fp = await fingerprint(rule.meta.id, url, input.evidence_key ?? '')
     const key = `${fp} ${input.source_url ?? ''}`
-    if (emitted.has(key)) return
-    emitted.add(key)
     const record: FindingRecord = {
       type: 'finding', fingerprint: fp, suite: suite.id, rule_id: rule.meta.id, rule_version: rule.meta.version, severity: input.severity ?? rule.meta.severity,
       url, ...(input.source_url ? { source_url: input.source_url } : {}), title: input.title ?? rule.meta.title, evidence: input.evidence ?? {},
     }
+    // With several browser profiles, one finding lists the profiles it was seen in (the profile is
+    // not part of its identity) and keeps the worst of them; it is written when the stage ends.
+    if (profileFindings && currentProfile) {
+      const seen = profileFindings.get(key)
+      if (!seen) profileFindings.set(key, { record, profiles: [currentProfile] })
+      else {
+        if (!seen.profiles.includes(currentProfile)) seen.profiles.push(currentProfile)
+        if (severityRank(record.severity) < severityRank(seen.record.severity)) seen.record = record
+      }
+      return
+    }
+    if (emitted.has(key)) return
+    emitted.add(key)
     findings.push(record)
     findingSeverity.set(fp, record.severity)
     await write(record)
@@ -342,7 +357,10 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     spec, config: spec.suites[suite.id]?.config ?? {}, origin, startUrl, requestedStartUrl: spec.target.start_url, emit: emitFor(suite),
     request: (url) => requester.page(url, undefined, () => true),
     text: (url, maxBytes = 256 * 1024) => requester.text(url, maxBytes),
-    metric: async (name, value, unit, url) => write({ type: 'metric', name, value, unit, url: normaliseUrl(url) ?? url, device: 'desktop' }),
+    metric: async (name, value, unit, url) => {
+      const profile = currentProfile ?? spec.browser.profiles[0]!
+      await write({ type: 'metric', name, value, unit, url: normaliseUrl(url) ?? url, device: PROFILES[profile].form === 'phone' ? 'mobile' : 'desktop', profile })
+    },
   })
   const contexts = new Map(active.map((suite) => [suite, ctxFor(suite)]))
   const runHook = async (suite: CheckSuite, hook: 'onPage' | 'onSite' | 'onBrowserPage', call: () => void | Promise<void>, url?: string) => {
@@ -523,47 +541,88 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
       wanted.set(home, forHome)
       for (const [u, x] of rest) wanted.set(u, x)
     }
-    const proxy = await startEgressProxy({ policy: { allowPrivate: spec.scope.allow_private } })
-    let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined
-    try {
-      browser = await launchBrowser(proxy.url)
-    } catch (error) {
-      for (const suite of suites) suiteErrors.push({ suite: suite.id, hook: 'browser', message: (error as Error).message })
-      await proxy.close()
-      return
-    }
+    // One load per page per profile (C06.10). Every suite sees the first profile; the others are for
+    // suites that measure per device (`everyProfile`), on at most `extra_profile_pages` pages each.
+    const profiles = [...new Set(spec.browser.profiles)]
+    const several = profiles.length > 1
     let loaded = 0
+    const refused: Refusal[] = []
+    if (several) profileFindings = new Map()
     try {
-      for (const [url, forSuites] of wanted) {
+      for (const [index, id] of profiles.entries()) {
         if (stopReason) break
-        await (deps.throttle ?? sharedThrottle).wait(new URL(url).host, spec.limits.per_host_rps, internal.signal)
-        const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false, userAgent, viewport: { width: 1350, height: 940 } })
+        const profile = PROFILES[id]
+        const first = index === 0
+        let plan = [...wanted].map(([url, forSuites]) => [url, first ? forSuites : forSuites.filter((x) => x.everyProfile)] as const)
+        if (!first) plan = plan.filter(([, forSuites]) => forSuites.length > 0).slice(0, spec.browser.extra_profile_pages ?? Infinity)
+        if (!plan.length) continue
+        const proxy = await startEgressProxy({ policy: { allowPrivate: spec.scope.allow_private }, ...(profile.network ? { shape: profile.network } : {}) })
+        let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined
         try {
-          // Auth headers on the target's own requests only, never on third-party ones.
-          if (originHeaders) {
-            await context.route((u) => u.origin === originHeaders.origin, (route) => route.continue({ headers: { ...route.request().headers(), ...originHeaders.headers } }))
-          }
-          const page = await context.newPage()
-          const started = clock.now()
-          const response = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).catch(() => null)
-          const bp: BrowserPage = { url, status: response?.status() ?? null, loadMs: clock.now() - started, page }
-          loaded += 1
-          for (const suite of forSuites) await runHook(suite, 'onBrowserPage', () => suite.onBrowserPage!(contexts.get(suite)!, bp), url)
-          if (deps.onHomePage && url === home) {
+          browser = await launchBrowser(proxy.url)
+        } catch (error) {
+          for (const suite of suites) suiteErrors.push({ suite: suite.id, hook: 'browser', message: (error as Error).message })
+          await proxy.close()
+          return
+        }
+        currentProfile = id
+        try {
+          for (const [url, forSuites] of plan) {
+            if (stopReason) break
+            await (deps.throttle ?? sharedThrottle).wait(new URL(url).host, spec.limits.per_host_rps, internal.signal)
+            const context = await browser.newContext({
+              serviceWorkers: 'block', acceptDownloads: false, viewport: profile.viewport, deviceScaleFactor: profile.pixelRatio, hasTouch: profile.touch, isMobile: profile.form === 'phone',
+              // A phone gets Chrome for Android's string with the Webtrax token; a user agent the spec sets is sent as it is.
+              userAgent: profile.form === 'phone' && !spec.user_agent ? phoneUserAgent(browser.version()) : userAgent,
+            })
             try {
-              await deps.onHomePage(bp)
-            } catch (error) {
-              suiteErrors.push({ suite: 'engine', hook: 'onHomePage', url, message: (error as Error).message })
+              // Auth headers on the target's own requests only, never on third-party ones.
+              if (originHeaders) {
+                await context.route((u) => u.origin === originHeaders.origin, (route) => route.continue({ headers: { ...route.request().headers(), ...originHeaders.headers } }))
+              }
+              const page = await context.newPage()
+              if (profile.cpuSlowdown) {
+                const cdp = await context.newCDPSession(page)
+                await cdp.send('Emulation.setCPUThrottlingRate', { rate: profile.cpuSlowdown })
+              }
+              const started = clock.now()
+              const response = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).catch(() => null)
+              const bp: BrowserPage = { url, status: response?.status() ?? null, loadMs: clock.now() - started, page, profile: id }
+              loaded += 1
+              for (const suite of forSuites) await runHook(suite, 'onBrowserPage', () => suite.onBrowserPage!(contexts.get(suite)!, bp), url)
+              if (first && deps.onHomePage && url === home) {
+                try {
+                  await deps.onHomePage(bp)
+                } catch (error) {
+                  suiteErrors.push({ suite: 'engine', hook: 'onHomePage', url, message: (error as Error).message })
+                }
+              }
+            } finally {
+              await context.close().catch(() => {})
             }
           }
         } finally {
-          await context.close().catch(() => {})
+          currentProfile = null
+          await browser.close().catch(() => {})
+          refused.push(...proxy.refused)
+          await proxy.close()
         }
       }
     } finally {
-      await browser.close().catch(() => {})
-      site.browser = { pages: loaded, refused: [...proxy.refused] }
-      await proxy.close()
+      site.browser = { pages: loaded, refused, ...(several ? { profiles } : {}) }
+      // Findings of the stage, each with the profiles it was seen in, in the order they were first found.
+      const merged = profileFindings
+      profileFindings = null
+      if (merged) {
+        for (const [key, { record, profiles: seenIn }] of merged) {
+          if (emitted.has(key)) continue
+          emitted.add(key)
+          const out: FindingRecord = { ...record, evidence: { ...record.evidence, profiles: seenIn } }
+          findings.push(out)
+          findingSeverity.set(out.fingerprint, out.severity)
+          await write(out)
+        }
+      }
     }
   }
 

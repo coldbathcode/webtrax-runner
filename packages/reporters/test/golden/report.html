@@ -53,6 +53,17 @@ table{border-collapse:collapse;width:100%}caption{text-align:left;color:var(--mu
 <h3 id="sev-info">Info (1)</h3><ul class="findings"><li><details><summary><span class="badge info">INFO</span>A rule the reporter has no metadata for: site-wide</summary>
 <div class="body"><p>Applies to the whole site.</p><p><strong>Evidence</strong></p><ul><li>examples: javascript:alert(1), <a href="https://x.example/">https://x.example/</a></li></ul><p class="muted">Rule <code>seo.unknown_rule</code> · finding <code>dddddddddd</code></p></div></details></li></ul>
 </section>
+<section aria-labelledby="speed">
+<h2 id="speed">Speed by device</h2>
+<p class="muted">Lab measurements from one load each. Phone is Chromium as a mid-range phone on slow 4G, not a real device.</p>
+<table>
+<caption>Largest contentful paint, layout shift and page weight for 1 of 1 page</caption>
+<thead><tr><th scope="col">Page</th><th scope="col">Desktop LCP</th><th scope="col">Desktop CLS</th><th scope="col">Desktop weight</th><th scope="col">Phone LCP</th><th scope="col">Phone CLS</th><th scope="col">Phone weight</th></tr></thead>
+<tbody>
+<tr><th scope="row"><a href="https://shop.example/">https://shop.example/</a></th><td>1.2 s</td><td>0.02</td><td>412 kB</td><td>4.8 s</td><td>0.31</td><td>1.3 MB</td></tr>
+</tbody>
+</table>
+</section>
 <section aria-labelledby="pages">
 <h2 id="pages">Pages</h2>
 <table>

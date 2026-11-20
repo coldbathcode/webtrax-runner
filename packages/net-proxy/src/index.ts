@@ -12,6 +12,7 @@
  * could not.
  */
 import { connect, type Socket } from 'node:net'
+import { PassThrough, Transform } from 'node:stream'
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from 'node:http'
 import { isIP } from 'node:net'
 import dns from 'node:dns'
@@ -24,6 +25,32 @@ export interface ProxyOptions {
   /** Injected DNS for tests. */
   lookup?: LookupFunction
   connectTimeoutMs?: number
+  /**
+   * Makes the line slower (C06.10: the phone profile's "slow 4G"), the same
+   * for every engine behind the proxy. Bytes in each direction share one
+   * line, so parallel downloads split it as on a real connection.
+   */
+  shape?: LineShape
+}
+
+export interface LineShape { down_kbps: number; up_kbps: number; latency_ms: number }
+
+/**
+ * One direction of a shaped line: every stream made from it shares its
+ * rate, and each chunk is also held for `delayMs` (half the round trip).
+ */
+export function shapedLine(kbps: number, delayMs: number, now: () => number = () => Date.now()) {
+  const bytesPerMs = (kbps * 1000) / 8 / 1000
+  let freeAt = 0
+  return (): Transform => new Transform({
+    transform(chunk: Buffer, _enc, done) {
+      // The chunk starts when the line is free and takes its size over the rate to pass.
+      const start = Math.max(now(), freeAt)
+      freeAt = start + chunk.length / bytesPerMs
+      const wait = freeAt + delayMs - now()
+      setTimeout(() => done(null, chunk), Math.max(0, wait))
+    },
+  })
 }
 
 export interface Refusal { target: string; reason: string }
@@ -79,6 +106,9 @@ export async function startEgressProxy(options: ProxyOptions = {}): Promise<Egre
   const timeout = options.connectTimeoutMs ?? 10_000
   const refused: Refusal[] = []
   const sockets = new Set<Socket>()
+  // Towards the browser (down) and towards the site (up); a plain pass-through when the line is not shaped.
+  const down = options.shape ? shapedLine(options.shape.down_kbps, options.shape.latency_ms / 2) : () => new PassThrough()
+  const up = options.shape ? shapedLine(options.shape.up_kbps, options.shape.latency_ms / 2) : () => new PassThrough()
 
   const refuse = (target: string, error: unknown) => {
     const reason = error instanceof ScopeDeniedError ? error.reason : (error as { code?: string }).code ?? 'error'
@@ -107,13 +137,13 @@ export async function startEgressProxy(options: ProxyOptions = {}): Promise<Egre
       const headers = { ...req.headers }
       for (const h of ['proxy-connection', 'proxy-authorization', 'connection', 'keep-alive']) delete headers[h]
       const upstream = httpRequest({ host: address, port, method: req.method, path: target.pathname + target.search, headers, setHost: false, timeout })
-      upstream.on('response', (up: IncomingMessage) => {
-        res.writeHead(up.statusCode ?? 502, up.headers)
-        up.pipe(res)
+      upstream.on('response', (answer: IncomingMessage) => {
+        res.writeHead(answer.statusCode ?? 502, answer.headers)
+        answer.pipe(down()).pipe(res)
       })
       upstream.on('timeout', () => upstream.destroy(new Error('upstream timeout')))
       upstream.on('error', () => { if (!res.headersSent) res.writeHead(502).end(); else res.destroy() })
-      req.pipe(upstream)
+      req.pipe(up()).pipe(upstream)
     }, (error: unknown) => {
       refuse(target.host, error)
       res.writeHead(403, { 'content-type': 'text/plain' }).end('blocked by webtrax scope policy')
@@ -142,8 +172,8 @@ export async function startEgressProxy(options: ProxyOptions = {}): Promise<Egre
         upstream.setTimeout(0)
         client.write('HTTP/1.1 200 Connection Established\r\n\r\n')
         if (head.length) upstream.write(head)
-        upstream.pipe(client)
-        client.pipe(upstream)
+        upstream.pipe(down()).pipe(client)
+        client.pipe(up()).pipe(upstream)
       })
       upstream.on('timeout', () => upstream.destroy())
       upstream.on('error', () => { if (!client.destroyed) client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n') })

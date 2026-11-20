@@ -11,7 +11,7 @@
  * readers.
  */
 import { z } from 'zod'
-import { CAPABILITIES, FETCH_ERRORS, PROTOCOL_VERSION, RUN_ERRORS, RUN_STATUSES, SEVERITIES, STOP_REASONS, SUITES } from './enums'
+import { BROWSER_PROFILES, CAPABILITIES, FETCH_ERRORS, PROTOCOL_VERSION, RUN_ERRORS, RUN_STATUSES, SEVERITIES, STOP_REASONS, SUITES } from './enums'
 
 /** Evidence is capped at 2 KB of JSON, as the database enforces (`finding_occurrences.evidence`). */
 export const MAX_EVIDENCE_BYTES = 2048
@@ -74,6 +74,17 @@ export const JobSpec = z.object({
       cookies: z.array(z.object({ name: z.string(), value: SecretValue, domain: z.string().optional() })).optional(),
     })
     .optional(),
+  /**
+   * The browser stage's profiles (C06.10), in order; the first is the main one,
+   * which every browser suite sees. `extra_profile_pages` caps how many pages
+   * each further profile loads (shallowest first; default: the same pages).
+   */
+  browser: z
+    .object({
+      profiles: z.array(z.enum(BROWSER_PROFILES)).min(1).max(BROWSER_PROFILES.length).default(['desktop']),
+      extra_profile_pages: z.int().min(1).max(1000).optional(),
+    })
+    .default({ profiles: ['desktop'] }),
   /** Defaults to the WebtraxBot identity (`@webtrax/protocol/bot`). */
   user_agent: z.string().max(500).optional(),
   evidence: z.enum(['minimal', 'standard', 'full']).default('standard'),
@@ -138,6 +149,8 @@ export const MetricRecord = z.object({
   unit: z.string().max(20).optional(),
   url: HttpUrl,
   device: z.enum(['desktop', 'mobile']).default('desktop'),
+  /** The browser profile it was measured with (C06.10); absent on records from before profiles. */
+  profile: z.enum(BROWSER_PROFILES).optional(),
 })
 export type MetricRecord = z.output<typeof MetricRecord>
 
