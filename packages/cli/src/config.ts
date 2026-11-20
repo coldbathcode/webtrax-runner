@@ -36,6 +36,10 @@ const Config = z.strictObject({
     time_budget_s: z.int().positive().optional(),
   }).optional(),
   suites: z.partialRecord(z.enum(AVAILABLE_SUITES), z.strictObject({ enabled: z.boolean() })).optional(),
+  /** The content suite's settings. `dictionary`: terms the site should no longer use, each with what to use instead. */
+  content: z.strictObject({
+    dictionary: z.array(z.union([z.string().min(2).max(80), z.strictObject({ term: z.string().min(2).max(80), use: z.string().max(120).optional() })])).max(200).optional(),
+  }).optional(),
   fail_on: z.enum([...SEVERITIES, 'none']).optional(),
   reports: z.array(z.enum(['html', 'md', 'json', 'sarif', 'junit'])).optional(),
   /** Rule ids to leave out of reports and the exit code (they stay in run.ndjson). */
@@ -132,7 +136,7 @@ export function buildSpec(config: Config, flags: CheckFlags, jobId: string): Job
       per_host_rps: flags.rps ?? limits.per_host_rps ?? 2,
       time_budget_s: flags.timeBudget ?? limits.time_budget_s ?? 600,
     },
-    suites: Object.fromEntries(suites.map((s) => [s, { enabled: true }])),
+    suites: Object.fromEntries(suites.map((s) => [s, { enabled: true, ...(s === 'content' && config.content?.dictionary?.length ? { config: { dictionary: config.content.dictionary } } : {}) }])),
     ...(flags.headers && Object.keys(flags.headers).length ? { auth: { headers: flags.headers } } : {}),
     labels: { source: 'cli' },
   }
@@ -191,6 +195,12 @@ suites:
   # Need Chromium (npx playwright@1.57.0 install chromium, or Google Chrome):
   a11y: { enabled: false }
   performance: { enabled: false }
+
+# Words the site should no longer use (old product names, retired prices), found by the content suite.
+# content:
+#   dictionary:
+#     - { term: "Acme Classic", use: "Acme One" }
+#     - "free forever"
 
 # Exit with code 1 when a finding is at least this severe (critical, high, medium, low, info, none).
 fail_on: high

@@ -7,6 +7,9 @@
  *   edit", "[insert …]", a template tag that reached the page unrendered
  *   (`{{ name }}`), and a value that printed as `undefined`, `NaN` or `null`;
  * - a copyright year that is behind this year (site-wide: one finding);
+ * - a term from the site's own list of words not to use (`config.dictionary`);
+ * - a "last updated" date more than 18 months old, on pages one click from
+ *   the start page;
  * - a page that answers 200 with almost nothing to read (not a form page,
  *   a redirect stub or a noindex page);
  * - pages whose main text is the same, or nearly the same, as another's.
@@ -26,6 +29,8 @@ export const CONTENT_RULES = [
   rule('content.placeholder', 'high', 'Placeholder text left on the page', 'Filler text, an unrendered template tag or a value that printed as "undefined" tells visitors the page was not finished or is broken, and search engines index it as written.', 'Replace the text with the real content, or fix the template or script that should have filled it in. The evidence quotes what was found.'),
   rule('content.copyright_stale', 'low', 'Copyright year is out of date', 'A footer that still shows an earlier year makes a site look unattended, which costs trust before a visitor has read anything.', 'Update the year, or print the current year from your template so it never falls behind. A range from the first year to the current one also works.'),
   rule('content.empty_page', 'medium', 'Page has almost no content', 'A page that loads but has next to nothing to read is a dead end for visitors and is treated as thin content by search engines. It is often a template without its data or a page that was never written.', 'Add the content the page is for, redirect it to a page that has it, or remove it and the links to it. If the content only appears with JavaScript, send it in the HTML.'),
+  rule('content.dictionary', 'medium', 'A term from your list of words not to use', 'Your team listed this term as one the site should no longer use: an old product name, a retired price or wording you have moved on from. It is still on this page.', 'Replace it with the wording you listed, or reword the sentence. The list is `content.dictionary` in webtrax.yml.'),
+  rule('content.date_stale', 'info', 'Page says it was last updated long ago', 'A visible "last updated" date more than 18 months old, on a page linked from your home page, suggests the page may no longer be right, whether or not it is.', 'Review the page. If it is still correct, update the date; if not, bring it up to date or remove it.'),
   rule('content.duplicate', 'low', 'Pages with the same content', 'When several URLs carry the same text, search engines pick one and may pick the wrong one, links are split between them, and visitors land on copies.', 'Keep one page and redirect the others to it, or give each a canonical link to the one that should be listed. If the pages are meant to differ, give each its own text.'),
 ] satisfies RuleMeta[]
 
@@ -110,6 +115,69 @@ export function copyrightYear(text: string): { year: number; quote: string } | n
   return best
 }
 
+export interface DictionaryTerm { term: string; use?: string }
+
+/** The site's own list (`config.dictionary`), cleaned: at most 200 terms of 2 to 80 characters. */
+export function readDictionary(config: Record<string, unknown>): DictionaryTerm[] {
+  const raw = Array.isArray(config.dictionary) ? config.dictionary : []
+  const out: DictionaryTerm[] = []
+  for (const x of raw.slice(0, 200)) {
+    const term = typeof x === 'string' ? x : typeof (x as DictionaryTerm | null)?.term === 'string' ? (x as DictionaryTerm).term : ''
+    const use = typeof (x as DictionaryTerm | null)?.use === 'string' ? (x as DictionaryTerm).use!.trim().slice(0, 120) : ''
+    const t = squash(term)
+    if (t.length >= 2 && t.length <= 80 && !out.some((o) => o.term.toLowerCase() === t.toLowerCase())) out.push({ term: t, ...(use ? { use } : {}) })
+  }
+  return out
+}
+
+/** Where each listed term appears as whole words, whatever its case: the first place and how many. */
+export function findTerms(text: string, terms: readonly DictionaryTerm[]): { term: string; use?: string; quote: string; count: number }[] {
+  const out: { term: string; use?: string; quote: string; count: number }[] = []
+  for (const t of terms) {
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${t.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, 'giu')
+    let count = 0
+    let quote = ''
+    for (const line of text.split('\n')) {
+      for (const m of line.matchAll(re)) {
+        count += 1
+        quote ||= quoteAround(line, m.index, m[0].length)
+      }
+    }
+    if (count) out.push({ ...t, quote, count })
+  }
+  return out
+}
+
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+export const DATE_STALE_MONTHS = 18
+
+/**
+ * The date a page says it was last updated: "Last updated 3 March 2023",
+ * "Updated: March 2023", "Last reviewed on March 3, 2023", "As of 2023-03-03".
+ * The newest one on the page, as a UTC month. Null without one.
+ */
+export function updatedDate(text: string): { year: number; month: number; quote: string } | null {
+  const month = `(${MONTHS.join('|')}|sept|${MONTHS.map((m) => m.slice(0, 3)).join('|')})\\.?`
+  const lead = '(?:last\\s+(?:updated|modified|reviewed|revised)|updated|page\\s+updated|as\\s+of|reviewed)\\s*(?:on|at|in)?\\s*:?\\s*'
+  const forms = [
+    new RegExp(`\\b${lead}(?:\\d{1,2}(?:st|nd|rd|th)?\\s+)?${month}\\s+(?:\\d{1,2}(?:st|nd|rd|th)?,?\\s+)?((?:19|20)\\d{2})\\b`, 'gi'),
+    new RegExp(`\\b${lead}((?:19|20)\\d{2})-(\\d{2})(?:-\\d{2})?\\b`, 'gi'),
+  ]
+  let best: { year: number; month: number; quote: string } | null = null
+  for (const line of text.split('\n')) {
+    if (line.length > 200) continue
+    forms.forEach((re, i) => {
+      for (const m of line.matchAll(re)) {
+        const year = Number(i === 0 ? m[2] : m[1])
+        const mon = i === 0 ? MONTHS.findIndex((x) => x.startsWith(m[1]!.toLowerCase().replace('.', '').slice(0, 3))) + 1 : Number(m[2])
+        if (mon < 1 || mon > 12) continue
+        if (!best || year * 12 + mon > best.year * 12 + best.month) best = { year, month: mon, quote: squash(m[0]).slice(0, 80) }
+      }
+    })
+  }
+  return best
+}
+
 /** A 64-bit SimHash of a text's three-word runs: alike texts differ in few bits. */
 export function simhash(text: string): bigint {
   const words = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
@@ -152,6 +220,18 @@ export const contentSuite: CheckSuite = {
     const aboutCode = $('code, pre').length >= 3 || /\b(undefined|NaN|null)\b/.test(named)
     for (const p of findPlaceholders(text, { loneValues: !aboutCode })) {
       await ctx.emit({ rule_id: 'content.placeholder', url: page.url, evidence_key: p.kind, evidence: { kind: p.kind, quote: p.quote } })
+    }
+
+    for (const t of findTerms(text, readDictionary(ctx.config))) {
+      await ctx.emit({ rule_id: 'content.dictionary', url: page.url, evidence_key: t.term.toLowerCase(), title: `"${t.term}" is on your list of words not to use`, evidence: { term: t.term, ...(t.use ? { use: t.use } : {}), quote: t.quote, count: t.count } })
+    }
+
+    // Only pages people reach in one click from the start page: an old blog post is allowed to be old.
+    const updated = page.depth <= 1 ? updatedDate(text) : null
+    if (updated) {
+      const now = today(ctx)
+      const months = now.getUTCFullYear() * 12 + now.getUTCMonth() + 1 - (updated.year * 12 + updated.month)
+      if (months > DATE_STALE_MONTHS) await ctx.emit({ rule_id: 'content.date_stale', url: page.url, evidence: { quote: updated.quote, months_old: months } })
     }
 
     // The newest year the site shows anywhere is the one it is judged by.

@@ -147,6 +147,20 @@ describe('webtrax.yml', () => {
   })
 })
 
+describe('webtrax.yml content.dictionary', () => {
+  it('hands the site\'s list of terms to the content suite, and refuses a malformed list', async () => {
+    fresh()
+    writeFileSync(join(cwd, 'webtrax.yml'), `version: 1\ntarget: ${fixture.origin}/\nfail_on: none\ncontent:\n  dictionary:\n    - { term: "Blog", use: "Journal" }\n    - "a term that is nowhere"\n`)
+    const t = io()
+    expect(await main(['check', ...FAST, '--suites', 'content', '--stdout', 'json'], t.io)).toBe(EXIT.ok)
+    const found = (JSON.parse(t.out()) as { findings: { rule_id: string; evidence: { term?: string; use?: string } }[] }).findings.filter((f) => f.rule_id === 'content.dictionary')
+    expect(found.length).toBeGreaterThan(0)
+    expect(found.every((f) => f.evidence.term === 'Blog' && f.evidence.use === 'Journal')).toBe(true)
+    writeFileSync(join(cwd, 'webtrax.yml'), 'version: 1\ncontent:\n  dictionary: ["x"]\n')
+    expect(await main(['check', `${fixture.origin}/`, ...FAST], io().io)).toBe(EXIT.usage)
+  })
+})
+
 describe('diff and explain', () => {
   it('diff compares the last two runs by fingerprint', async () => {
     fresh()

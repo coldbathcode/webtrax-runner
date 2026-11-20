@@ -2,7 +2,7 @@ import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { crawl, HostThrottle, MemorySink, parseHtml } from '@webtrax/engine'
-import { CONTENT_RULES, contentSuite, copyrightYear, findPlaceholders, simhash, visibleText, wordCount } from '../src'
+import { CONTENT_RULES, contentSuite, copyrightYear, findPlaceholders, findTerms, readDictionary, simhash, updatedDate, visibleText, wordCount } from '../src'
 
 const doc = (body: string) => parseHtml(`<!doctype html><html lang="en"><head><title>T</title></head><body>${body}</body></html>`, 'https://site.example/').$
 const kinds = (text: string) => findPlaceholders(text).map((p) => p.kind)
@@ -64,6 +64,37 @@ describe('copyright year', () => {
   })
 })
 
+describe('the site\'s own list of terms', () => {
+  it('reads strings and {term, use}, and drops what is too short, too long or repeated', () => {
+    expect(readDictionary({ dictionary: ['Acme Classic', { term: ' free   forever ', use: 'free plan' }, 'x', 'acme classic', 42, { term: 'y'.repeat(81) }] }))
+      .toEqual([{ term: 'Acme Classic' }, { term: 'free forever', use: 'free plan' }])
+    expect(readDictionary({})).toEqual([])
+    expect(readDictionary({ dictionary: 'nope' })).toEqual([])
+  })
+
+  it('finds whole words in any case, across line breaks in spacing, and counts them', () => {
+    const terms = readDictionary({ dictionary: [{ term: 'Acme Classic', use: 'Acme One' }, 'C++ (beta)', 'pro'] })
+    const found = findTerms('Buy ACME  classic today.\nAcme Classic is great. Acme Classics are not.\nWe love C++ (beta) and professionals, the Pro plan.', terms)
+    expect(found).toEqual([
+      { term: 'Acme Classic', use: 'Acme One', quote: 'Buy ACME  classic today.', count: 2 },
+      { term: 'C++ (beta)', quote: 'We love C++ (beta) and professionals, the Pro pl…', count: 1 },
+      { term: 'pro', quote: '…(beta) and professionals, the Pro plan.', count: 1 },
+    ])
+    expect(findTerms('Nothing here', terms)).toEqual([])
+  })
+})
+
+describe('last updated dates', () => {
+  it('reads the usual forms and keeps the newest', () => {
+    expect(updatedDate('Last updated 3 March 2023')).toEqual({ year: 2023, month: 3, quote: 'Last updated 3 March 2023' })
+    expect(updatedDate('Updated: March 2023')).toMatchObject({ year: 2023, month: 3 })
+    expect(updatedDate('Last reviewed on Sept. 3rd, 2024')).toMatchObject({ year: 2024, month: 9 })
+    expect(updatedDate('Prices as of 2022-11-30')).toMatchObject({ year: 2022, month: 11 })
+    expect(updatedDate('Last modified: Jan 2021\nLast updated December 12, 2025')).toMatchObject({ year: 2025, month: 12 })
+    for (const none of ['Founded in March 2019', 'Updated daily', 'Our March 2023 release', 'As of now, 2023 looks good', 'Last updated 2023-13-01']) expect(updatedDate(none), none).toBeNull()
+  })
+})
+
 describe('alike texts', () => {
   const bits = (a: bigint, b: bigint) => (a ^ b).toString(2).replace(/0/g, '').length
   const base = Array.from({ length: 120 }, (_, i) => `word${i % 37} thing${i} other${(i * 7) % 11}`).join(' ')
@@ -76,7 +107,7 @@ describe('alike texts', () => {
 })
 
 const para = (seed: string, n = 30) => Array.from({ length: n }, (_, i) => `${seed} sentence number ${i} talks about ${seed}${i * 3} and ${seed}${i * 7}.`).join(' ')
-const html = (title: string, main: string, head = '', year = 2026) => `<!doctype html><html lang="en"><head><title>${title}</title>${head}</head><body><nav><a href="/">Home</a> <a href="/about">About</a> <a href="/copy">Copy</a> <a href="/copy2">Copy 2</a> <a href="/canon">Canon</a> <a href="/empty">Empty</a> <a href="/stub">Stub</a> <a href="/draft">Draft</a> <a href="/docs">Docs</a> <a href="/gallery">Gallery</a> <a href="/login">Sign in</a> <a href="/nan">NaN</a></nav><main>${main}</main><footer><p>© 2019-${year} Shop Ltd</p></footer></body></html>`
+const html = (title: string, main: string, head = '', year = 2026) => `<!doctype html><html lang="en"><head><title>${title}</title>${head}</head><body><nav><a href="/">Home</a> <a href="/about">About</a> <a href="/copy">Copy</a> <a href="/copy2">Copy 2</a> <a href="/canon">Canon</a> <a href="/empty">Empty</a> <a href="/stub">Stub</a> <a href="/draft">Draft</a> <a href="/docs">Docs</a> <a href="/gallery">Gallery</a> <a href="/login">Sign in</a> <a href="/nan">NaN</a> <a href="/terms-old">Terms</a> <a href="/terms-new">New terms</a> <a href="/archive">Archive</a></nav><main>${main}</main><footer><p>© 2019-${year} Shop Ltd</p></footer></body></html>`
 
 let origin: string
 let server: http.Server
@@ -98,6 +129,11 @@ beforeAll(async () => {
     if (req.url === '/docs') return page('Docs', `<h1>Templates</h1><p>${para('docs')}</p><p>Write <code>{{ name }}</code> to print a name; an unset one prints <code>undefined</code>.</p><pre>Lorem ipsum {{ x }}\nNaN</pre>`)
     // Few words, but its images say what it is.
     if (req.url === '/gallery') return page('Gallery', `<h1>Gallery</h1>${Array.from({ length: 12 }, (_, i) => `<img src="/i${i}.jpg" alt="Our shop front seen from the street, photo ${i}">`).join('')}`)
+    if (req.url === '/terms-old') return page('Terms', `<h1>Terms</h1><p>Last updated: 4 January 2024</p><p>${para('terms')}</p><p>Buy Acme Classic today, or see <code>Acme Classic</code> in the API.</p>`)
+    if (req.url === '/terms-new') return page('New terms', `<h1>New terms</h1><p>Last updated: 4 October 2026</p><p>${para('newterms')}</p>`)
+    // Two clicks from the start page: an old post may be old.
+    if (req.url === '/archive') return page('Archive', `<h1>Archive</h1><p>${para('archive')}</p><p><a href="/archive/post">An old post</a></p>`)
+    if (req.url === '/archive/post') return page('Old post', `<h1>Old post</h1><p>Last updated: 1 May 2019</p><p>${para('oldpost')}</p>`)
     // A sign-in page has a form, not prose.
     if (req.url === '/login') return page('Sign in', '<h1>Sign in</h1><form method="post"><label>Email <input type="email" name="e"></label><button>Continue</button></form>')
     // A reference page named after a value, with the value in a table and no code markup around it.
@@ -110,7 +146,7 @@ beforeAll(async () => {
 afterAll(() => new Promise<void>((r) => server.close(() => r())))
 
 const run = (today: string) => crawl(
-  { spec_version: 1, job_id: 'c', target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 }, suites: { content: { enabled: true, config: { today } } } },
+  { spec_version: 1, job_id: 'c', target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 }, suites: { content: { enabled: true, config: { today, dictionary: [{ term: 'Acme Classic', use: 'Acme One' }] } } } },
   { sink: new MemorySink(), throttle: new HostThrottle(), suites: [contentSuite] },
 )
 const at = (r: Awaited<ReturnType<typeof run>>, id: string) => r.findings.filter((f) => f.rule_id === id).map((f) => [f.url?.replace(origin, '') ?? null, f.evidence] as const)
@@ -119,7 +155,8 @@ describe('content suite on a site', () => {
   it('declares its rules with docs pages', () => {
     expect(CONTENT_RULES.map((r) => [r.id, r.severity, r.docs_slug])).toEqual([
       ['content.placeholder', 'high', 'content-placeholder'], ['content.copyright_stale', 'low', 'content-copyright-stale'],
-      ['content.empty_page', 'medium', 'content-empty-page'], ['content.duplicate', 'low', 'content-duplicate'],
+      ['content.empty_page', 'medium', 'content-empty-page'], ['content.dictionary', 'medium', 'content-dictionary'], ['content.date_stale', 'info', 'content-date-stale'],
+      ['content.duplicate', 'low', 'content-duplicate'],
     ])
   })
 
@@ -137,6 +174,11 @@ describe('content suite on a site', () => {
     expect(r.findings.find((f) => f.rule_id === 'content.duplicate')!.title).toBe('3 pages with the same content')
     // The footer names this year.
     expect(at(r, 'content.copyright_stale')).toEqual([])
+    // The listed term, once per page, in prose only (the code sample on the same page is not counted).
+    expect(at(r, 'content.dictionary')).toEqual([['/terms-old', { term: 'Acme Classic', use: 'Acme One', quote: 'Buy Acme Classic today, or see in the API.', count: 1 }]])
+    expect(r.findings.find((f) => f.rule_id === 'content.dictionary')).toMatchObject({ severity: 'medium', title: '"Acme Classic" is on your list of words not to use' })
+    // January 2024 is 34 months before November 2026; October 2026 is recent; the old post is two clicks away.
+    expect(at(r, 'content.date_stale')).toEqual([['/terms-old', { quote: 'Last updated: 4 January 2024', months_old: 34 }]])
   }, 60_000)
 
   it('reports a stale copyright year once for the site, with where it was seen', async () => {
@@ -144,7 +186,7 @@ describe('content suite on a site', () => {
     const r = await run('2026-01-05')
     const found = at(r, 'content.copyright_stale')
     expect(found).toHaveLength(1)
-    expect(found[0]).toEqual([null, { year: 2024, this_year: 2026, quote: '© 2019-2024', seen_on: expect.stringContaining(origin), pages: 12 }])
+    expect(found[0]).toEqual([null, { year: 2024, this_year: 2026, quote: '© 2019-2024', seen_on: expect.stringContaining(origin), pages: 16 }])
     expect(r.findings.find((f) => f.rule_id === 'content.copyright_stale')).toMatchObject({ severity: 'low', title: 'Copyright year is 2024' })
     year = 2026
   }, 60_000)
