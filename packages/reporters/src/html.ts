@@ -72,13 +72,14 @@ export function renderHtml(r: Report): string {
 <main>
 <section aria-labelledby="summary">
 <h2 id="summary">Summary</h2>
-<dl class="stats">
+<dl class="stats">${r.score.score === null ? '' : `
+<div><dt>Health score</dt><dd>${r.score.score} <small>${r.score.grade}</small></dd></div>`}
 <div><dt>Findings</dt><dd>${r.findings.length}</dd></div>
 <div><dt>Pages crawled</dt><dd>${s.pages.crawled}</dd></div>
 <div><dt>Links checked</dt><dd>${s.links.checked}</dd></div>
 <div><dt>Broken links</dt><dd>${s.links.broken}</dd></div>
 </dl>
-<p>${esc(countsText(r.counts))}.</p>
+<p>${esc(countsText(r.counts))}.${r.score.score === null ? '' : ' <a href="https://docs.webtrax.dev/health-score/">How the health score is worked out</a>.'}</p>
 </section>
 <section aria-labelledby="findings">
 <h2 id="findings">Findings</h2>

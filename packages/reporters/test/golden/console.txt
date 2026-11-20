@@ -1,6 +1,7 @@
 Webtrax https://shop.example/
 partial (time budget) · 1 page · 12 links checked · 1 min 6 s
 1 high, 1 medium, 1 low, 1 info
+Health 80 out of 100 (B)
 
 HIGH     Broken internal link: https://shop.example/old (on 2 pages)  [aaaaaaaaaa]
 MEDIUM   Content-Security-Policy missing: https://shop.example/  [bbbbbbbbbb]

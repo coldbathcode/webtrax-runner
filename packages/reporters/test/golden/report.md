@@ -2,6 +2,7 @@
 
 - Status: partial (time budget)
 - Pages crawled: 1; links checked: 12; duration: 1 min 6 s
+- Health score: 80 out of 100 (B) ([how it is worked out](https://docs.webtrax.dev/health-score/))
 - Findings: 1 high, 1 medium, 1 low, 1 info
 - Suites: links 1.0.0, security 1.0.0, seo 1.0.0
 

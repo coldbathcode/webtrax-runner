@@ -1,6 +1,6 @@
 /** The terminal summary `webtrax check` prints. Plain text; colour only when asked (a TTY). */
 import type { Severity } from '@webtrax/protocol'
-import { countsText, durationText, plural, statusText, target, type Report } from './model'
+import { countsText, durationText, plural, scoreText, statusText, target, type Report } from './model'
 
 const COLOURS: Record<Severity, string> = { critical: '\x1b[35m', high: '\x1b[31m', medium: '\x1b[33m', low: '\x1b[36m', info: '\x1b[2m' }
 
@@ -16,6 +16,8 @@ export function renderConsole(r: Report, o: ConsoleOptions = {}): string {
     `${statusText(r)} · ${plural(s.pages.crawled, 'page')} · ${plural(s.links.checked, 'link')} checked · ${durationText(r)}`,
     `${countsText(r.counts)}`,
   ]
+  const score = scoreText(r)
+  if (score) lines.push(`Health ${score}`)
   if (r.findings.length) lines.push('')
   for (const f of r.findings.slice(0, max)) {
     const where = f.url ?? 'site-wide'

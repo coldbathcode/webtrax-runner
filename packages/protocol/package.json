@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./bot": "./src/bot.ts",
+    "./score": "./src/score.ts",
     "./schema/*": "./schema/*"
   },
   "scripts": {

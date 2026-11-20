@@ -4,7 +4,7 @@
  * on) and sorted most severe first. Built from the NDJSON records, so a
  * report can be rendered again later from `.webtrax/runs/<ts>/run.ndjson`.
  */
-import { SEVERITIES, severityRank, type FindingRecord, type PageRecord, type RuleMeta, type RunLine, type Severity, type SummaryRecord } from '@webtrax/protocol'
+import { healthScore, SEVERITIES, severityRank, type FindingRecord, type HealthScore, type PageRecord, type RuleMeta, type RunLine, type Severity, type SummaryRecord } from '@webtrax/protocol'
 
 type RunRecord = Extract<RunLine, { type: 'run' }>
 
@@ -29,7 +29,12 @@ export interface Report {
   findings: FindingGroup[]
   /** Findings per severity, for headlines; equals summary.findings. */
   counts: Record<Severity, number>
+  /** Health Score v1 (@webtrax/protocol): from the findings, the pages crawled and the suites that ran. No score for a failed run. */
+  score: HealthScore
 }
+
+/** "87 out of 100 (B)", or null when there is no score. */
+export const scoreText = (r: Report): string | null => (r.score.score === null ? null : `${r.score.score} out of 100 (${r.score.grade})`)
 
 export const shortId = (fingerprint: string) => fingerprint.slice(0, 10)
 
@@ -55,7 +60,12 @@ export function buildReport(records: readonly RunLine[], rules: readonly RuleMet
     .map((g) => ({ ...g, sources: [...g.sources].sort() }))
     .sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || a.rule_id.localeCompare(b.rule_id) || (a.url ?? '').localeCompare(b.url ?? ''))
   const counts = Object.fromEntries(SEVERITIES.map((s) => [s, findings.filter((f) => f.severity === s).length])) as Record<Severity, number>
-  return { run, summary, pages: records.filter((r): r is PageRecord => r.type === 'page'), findings, counts }
+  const score = healthScore({
+    findings: findings.map((f) => ({ rule_id: f.rule_id, suite: f.rule_id.split('.')[0]!, severity: f.severity, url: f.url })),
+    pages: summary.pages.crawled,
+    suites: summary.status === 'failed' ? [] : summary.suites.map((s) => s.id),
+  })
+  return { run, summary, pages: records.filter((r): r is PageRecord => r.type === 'page'), findings, counts, score }
 }
 
 /** "3 high, 1 medium" style text; "no findings" when empty. */

@@ -51,6 +51,34 @@
       }
     ]
   },
+  "score": {
+    "version": 1,
+    "score": 80,
+    "grade": "B",
+    "suites": [
+      {
+        "suite": "links",
+        "score": 65.9,
+        "penalty": 5,
+        "weight": 25,
+        "rules": 1
+      },
+      {
+        "suite": "security",
+        "score": 84.6,
+        "penalty": 2,
+        "weight": 20,
+        "rules": 1
+      },
+      {
+        "suite": "seo",
+        "score": 95.9,
+        "penalty": 0.5,
+        "weight": 15,
+        "rules": 2
+      }
+    ]
+  },
   "findings": [
     {
       "id": "aaaaaaaaaa",

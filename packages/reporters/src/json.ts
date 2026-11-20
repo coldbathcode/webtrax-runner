@@ -8,6 +8,7 @@ export function renderJson(r: Report): string {
     job_id: r.run.job_id,
     runner: r.run.runner,
     summary: r.summary,
+    score: r.score,
     findings: r.findings.map(({ rule, ...f }) => ({ ...f, ...(rule ? { why: rule.why, fix: rule.fix, docs: `https://docs.webtrax.dev/rules/${rule.docs_slug}/` } : {}) })),
     pages: r.pages.map((p) => ({ url: p.url, final_url: p.final_url, status: p.status, ...(p.error ? { error: p.error } : {}), ...(p.title ? { title: p.title } : {}) })),
   }, null, 2)}\n`
