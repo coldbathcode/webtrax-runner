@@ -16,7 +16,8 @@ uid=$(docker run --rm --entrypoint id "$tag" -u)
 [ "$uid" != 0 ] || fail "runs as root"
 
 # Findings as "severity rule path", sorted: the origin's port differs between runs.
-summarise='let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);console.log(r.findings.map(f=>`${f.severity} ${f.rule_id} ${new URL(f.url).pathname}`).sort().join("\n"))})'
+# Site-wide findings (no llms.txt, no structured data) have no URL.
+summarise='let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);console.log(r.findings.map(f=>`${f.severity} ${f.rule_id} ${f.url?new URL(f.url).pathname:"(site)"}`).sort().join("\n"))})'
 check='webtrax check "$(head -1 /tmp/origin)" --browser --fail-on none --out /tmp/out --stdout json'
 
 inside=$(docker run --rm --read-only --tmpfs /tmp --network none \
