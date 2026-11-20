@@ -11,9 +11,9 @@ import { z } from 'zod'
 import { SEVERITIES, type JobSpecInput, type Severity, type SuiteId } from '@webtrax/protocol'
 
 export const CONFIG_FILE = 'webtrax.yml'
-export const AVAILABLE_SUITES = ['links', 'security', 'seo', 'ai_readiness', 'a11y', 'performance'] as const satisfies readonly SuiteId[]
+export const AVAILABLE_SUITES = ['links', 'security', 'seo', 'content', 'ai_readiness', 'a11y', 'performance'] as const satisfies readonly SuiteId[]
 /** On unless turned off. The browser suites (a11y, performance) need Chromium, so they are opt-in. */
-export const DEFAULT_SUITES: readonly AvailableSuite[] = ['links', 'security', 'seo', 'ai_readiness']
+export const DEFAULT_SUITES: readonly AvailableSuite[] = ['links', 'security', 'seo', 'content', 'ai_readiness']
 export const BROWSER_SUITES: readonly AvailableSuite[] = ['a11y', 'performance']
 export type AvailableSuite = (typeof AVAILABLE_SUITES)[number]
 export type FailOn = Severity | 'none'

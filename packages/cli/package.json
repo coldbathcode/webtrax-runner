@@ -70,6 +70,7 @@
     "@webtrax/suite-performance": "workspace:*",
     "@webtrax/suite-security": "workspace:*",
     "@webtrax/suite-ai": "workspace:*",
+    "@webtrax/suite-content": "workspace:*",
     "@webtrax/suite-seo": "workspace:*",
     "esbuild": "0.27.7",
     "eslint": "^9.39.5",

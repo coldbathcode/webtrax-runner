@@ -75,7 +75,7 @@ describe('webtrax check', () => {
     const t = io()
     await main(['check', `${fixture.origin}/`, ...FAST, '--browser', '--max-pages', '3', '--stdout', 'json', '--fail-on', 'none'], t.io)
     const json = JSON.parse(t.out())
-    expect(json.summary.suites.map((s: { id: string }) => s.id)).toEqual(['links', 'security', 'seo', 'ai_readiness', 'a11y', 'performance'])
+    expect(json.summary.suites.map((s: { id: string }) => s.id)).toEqual(['links', 'security', 'seo', 'content', 'ai_readiness', 'a11y', 'performance'])
     expect(json.findings.some((f: { rule_id: string }) => f.rule_id === 'a11y.html_has_lang')).toBe(true)
   }, 90_000)
 

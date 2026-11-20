@@ -48,7 +48,8 @@ Options for check
   --config <file>        config file (default: ./webtrax.yml if present)
   --max-pages <n>        pages to crawl (default 300)
   --max-depth <n>        link depth from the start page (default 10)
-  --suites <list>        links,security,seo,ai_readiness,a11y,performance (default: links,security,seo,ai_readiness)
+  --suites <list>        links,security,seo,content,ai_readiness,a11y,performance
+                         (default: links,security,seo,content,ai_readiness)
   --browser              also run the browser suites (a11y, performance) and the JavaScript-only
                          content check; needs Chromium or Chrome
   --fail-on <severity>   exit 1 at this severity or worse: critical, high, medium, low, info, none (default high)
