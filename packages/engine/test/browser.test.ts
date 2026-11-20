@@ -127,6 +127,26 @@ describe('browser stage', () => {
     expect(Math.min(...loads.phone!)).toBeGreaterThan(300)
   }, 120_000)
 
+  it('waits for the caller\'s gate before opening a browser, so several crawls can share a few browsers', async () => {
+    const events: string[] = []
+    const suite: CheckSuite = { id: 'performance', version: '1', requires: ['http', 'browser'], rules: [rule], defaultSample: 1, onBrowserPage() { events.push('page') } }
+    let open = 0
+    let peak = 0
+    // One browser stage at a time, however many crawls run.
+    let tail: Promise<unknown> = Promise.resolve()
+    const gate = <T,>(stage: () => Promise<T>): Promise<T> => {
+      const run = tail.then(async () => { open += 1; peak = Math.max(peak, open); events.push('enter'); try { return await stage() } finally { open -= 1; events.push('leave') } })
+      tail = run.catch(() => {})
+      return run
+    }
+    const one = (id: string) => crawl({ spec_version: 1, job_id: id, target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 }, suites: { performance: { enabled: true } } },
+      { sink: new MemorySink(), throttle: new HostThrottle(), suites: [suite], browserGate: gate })
+    const results = await Promise.all([one('g1'), one('g2'), one('g3')])
+    expect(results.map((r) => r.site!.browser!.pages)).toEqual([1, 1, 1])
+    expect(peak).toBe(1)
+    expect(events).toEqual(['enter', 'page', 'leave', 'enter', 'page', 'leave', 'enter', 'page', 'leave'])
+  }, 120_000)
+
   it('does not start a browser when no browser suite runs', async () => {
     const r = await crawl({ spec_version: 1, job_id: 'h', target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 } }, { sink: new MemorySink(), throttle: new HostThrottle() })
     expect(r.site!.browser).toBeUndefined()

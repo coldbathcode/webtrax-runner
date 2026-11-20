@@ -122,6 +122,13 @@ export interface CrawlDeps {
    * browser suite does. An error here is recorded and never fails the run.
    */
   onHomePage?: (page: BrowserPage) => void | Promise<void>
+  /**
+   * Runs the browser stage when the caller says there is room. A process
+   * that runs several crawls at once passes a limiter here, so only a few
+   * Chromium instances are open at a time (each takes a CPU and several
+   * hundred megabytes; crawls are cheap). Default: run at once.
+   */
+  browserGate?: <T>(stage: () => Promise<T>) => Promise<T>
   /** Check suites available to this run; the spec's `suites` decides which run. */
   suites?: CheckSuite[]
   runner?: { name: string; version: string }
@@ -596,7 +603,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   // onHomePage alone also starts the stage, but then for the start page only: optional hooks stay out.
   const needBrowser = active.some((s) => s.requires.includes('browser') && s.onBrowserPage)
   const browserSuites = needBrowser ? active.filter((s) => s.onBrowserPage) : []
-  if ((needBrowser || deps.onHomePage) && !stopReason) await browserStage(browserSuites)
+  // The wait for room counts against the time budget: a run that is out of time by then skips the stage.
+  if ((needBrowser || deps.onHomePage) && !stopReason) await (deps.browserGate ?? ((stage) => stage()))(async () => { if (!stopReason) await browserStage(browserSuites) })
   // A suite that needs the browser and never got a page said nothing about anything: it is skipped, not clean (V2-COR-01).
   for (const s of active) if (s.requires.includes('browser') && s.onBrowserPage && !browserPages.has(s)) skippedSuites.add(s.id)
 
