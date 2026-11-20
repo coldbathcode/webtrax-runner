@@ -169,3 +169,26 @@ describe('one bad record costs that record, not the run (V2-COR-06)', () => {
     }
   })
 })
+
+describe('a huge sitemap does not fill memory (C20 E0)', () => {
+  it('keeps only as many sitemap entries as the crawl could use, and says the sitemap was read in part', async () => {
+    const entries = 20_000
+    const big = http.createServer((req, res) => {
+      if (req.url === '/sitemap.xml') { res.writeHead(200, { 'content-type': 'application/xml' }); return res.end(`<urlset>${Array.from({ length: entries }, (_, i) => `<url><loc>http://${req.headers.host}/p/${i}</loc></url>`).join('')}</urlset>`) }
+      if (req.url === '/robots.txt') { res.writeHead(404); return res.end() }
+      res.writeHead(200, { 'content-type': 'text/html' }); res.end(page('P', '<p>x</p>'))
+    })
+    await new Promise<void>((r) => big.listen(0, '127.0.0.1', r))
+    const at = `http://127.0.0.1:${(big.address() as AddressInfo).port}`
+    try {
+      const r = await crawl({ spec_version: 1, job_id: 's', target: { start_url: `${at}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50, max_pages: 5 } }, { sink: new MemorySink(), throttle: new HostThrottle(), options: { retryDelayMs: 1 } })
+      // 5,000 at least, never the 20,000 listed.
+      expect(r.site!.edges.filter((e) => e.kind === 'sitemap')).toHaveLength(5000)
+      expect(r.site!.sitemapTruncated).toBe(true)
+      expect(r.summary.pages.crawled).toBe(5)
+      expect(r.summary).toMatchObject({ status: 'partial', stop_reason: 'page_limit' })
+    } finally {
+      await new Promise<void>((res) => big.close(() => res()))
+    }
+  }, 60_000)
+})

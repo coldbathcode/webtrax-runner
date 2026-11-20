@@ -41,6 +41,12 @@ export interface EngineOptions {
   maxRobotsBytes: number
   maxSitemapBytes: number
   maxSitemaps: number
+  /**
+   * Sitemap entries kept, as a multiple of the page limit (at least 5,000).
+   * A crawl can only use as many as it may fetch; a site with a million
+   * entries used to hold them all in memory, as entries and again as edges.
+   */
+  sitemapEntriesPerPage: number
   rateLimitAttempts: number
   /** Link checks in flight at once (V2-COR-05): unbounded, a page of thousands of links starts them all and they time each other out. */
   linkCheckConcurrency: number
@@ -61,6 +67,7 @@ export const ENGINE_DEFAULTS: EngineOptions = {
   maxRobotsBytes: 512 * 1024,
   maxSitemapBytes: 10 * 1024 * 1024,
   maxSitemaps: 50,
+  sitemapEntriesPerPage: 5,
   rateLimitAttempts: 3,
   linkCheckConcurrency: 8,
   maxLinkChecks: 5_000,
@@ -102,6 +109,8 @@ export interface SiteState {
   sitemapUrls: string[]
   /** Set when the browser stage ran: pages loaded, and requests the egress proxy refused. */
   browser?: { pages: number; refused: Refusal[]; profiles?: BrowserProfileId[] }
+  /** The sitemaps list more pages than the run keeps (`sitemapEntriesPerPage`): the rest were not read. */
+  sitemapTruncated?: boolean
   /** Link targets left unchecked because the run reached `maxLinkChecks`. */
   linksNotChecked?: number
 }
@@ -394,7 +403,9 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const sitemapQueue = [...new Set([`${origin}/sitemap.xml`, ...robots.sitemaps()])].filter((u) => {
     try { return isInternal(u) } catch { return false }
   })
-  while (sitemapQueue.length && sitemapUrls.length < opts.maxSitemaps && !stopReason) {
+  const maxSitemapEntries = Math.max(5_000, spec.limits.max_pages * opts.sitemapEntriesPerPage)
+  let sitemapTruncated = false
+  while (sitemapQueue.length && sitemapUrls.length < opts.maxSitemaps && !stopReason && !sitemapTruncated) {
     const url = sitemapQueue.shift()!
     if (sitemapUrls.includes(url)) continue
     sitemapUrls.push(url)
@@ -403,12 +414,13 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     const parsed = parseSitemap(r.body)
     for (const loc of parsed.locs) {
       if (parsed.isIndex) { if (loc.startsWith(origin)) sitemapQueue.push(loc) }
-      else sitemapLocs.push({ loc, sitemap: url })
+      else if (sitemapLocs.length < maxSitemapEntries) sitemapLocs.push({ loc, sitemap: url })
+      else { sitemapTruncated = true; break }
     }
   }
 
   // 3. The crawl.
-  const site: SiteState = { origin, startUrl, requestedStartUrl: spec.target.start_url, robots, pages: new Map(), links: new Map(), edges: [], sitemapUrls }
+  const site: SiteState = { origin, startUrl, requestedStartUrl: spec.target.start_url, robots, pages: new Map(), links: new Map(), edges: [], sitemapUrls, ...(sitemapTruncated ? { sitemapTruncated } : {}) }
   const ctxFor = (suite: CheckSuite): SuiteCtx => ({
     spec, config: spec.suites[suite.id]?.config ?? {}, origin, startUrl, requestedStartUrl: spec.target.start_url, emit: emitFor(suite),
     request: (url) => { reachedUrls.add(normaliseUrl(url) ?? url); return requester.page(url, undefined, () => true) },
