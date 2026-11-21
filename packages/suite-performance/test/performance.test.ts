@@ -53,8 +53,9 @@ describe('performance suite in Chromium', () => {
     )
     expect(r.suiteErrors).toEqual([])
     const ttfb = (profile: string, path: string) => sink.of('metric').find((m) => m.name === 'ttfb_ms' && m.profile === profile && m.url === `${origin}${path}`)!.value
-    // The phone's line adds its delay to every first byte.
-    expect(ttfb('phone', '/')).toBeGreaterThan(ttfb('desktop', '/') + 50)
+    // The phone's line delays every first byte (about 75 ms here; a local answer without it takes a few). Checked
+    // against the delay itself, not the desktop's sample: on a busy machine the desktop's first byte has taken 160 ms.
+    expect(ttfb('phone', '/')).toBeGreaterThanOrEqual(60)
     // /slow is slow on both, but only the desktop measurement can say so about the server.
     const slow = r.findings.filter((f) => f.rule_id === 'performance.ttfb.slow')
     expect(slow.map((f) => [f.url, f.evidence.profiles])).toEqual([[`${origin}/slow`, ['desktop']]])
