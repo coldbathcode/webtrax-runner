@@ -167,6 +167,8 @@ export const PageRecord = z.object({
   timing_ms: z.object({ ttfb: z.number().min(0), total: z.number().min(0) }).optional(),
   title: z.string().max(1000).optional(),
   content_hash: Fingerprint.optional(),
+  /** Hash of the page's layout skeleton (tags and class names near the top of the body, repeats folded): pages built from one template share it. */
+  template_key: z.string().max(100).optional(),
 })
 export type PageRecord = z.output<typeof PageRecord>
 

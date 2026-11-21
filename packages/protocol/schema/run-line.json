@@ -524,6 +524,10 @@
         "content_hash": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "template_key": {
+          "type": "string",
+          "maxLength": 100
         }
       },
       "required": [

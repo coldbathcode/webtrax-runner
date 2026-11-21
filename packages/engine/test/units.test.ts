@@ -5,6 +5,7 @@ import { ScopeDeniedError } from '@webtrax/net-guard'
 import { parseNdjson } from '@webtrax/protocol'
 import { describe, expect, it } from 'vitest'
 import { classifyError, HostThrottle, isBrokenOutcome, LocalSink, parseRobots, parseSitemap, retryAfterMs, robotsProductToken, type ThrottleClock } from '../src'
+import { parseHtml } from '../src/html'
 
 /** A clock where sleep advances time instantly, recording each start. */
 function fakeClock() {
@@ -121,3 +122,25 @@ describe('LocalSink', () => {
     }
   })
 })
+
+describe('the layout skeleton (template_key)', () => {
+  const page = (body: string) => parseHtml(`<!doctype html><html><head><title>t</title></head><body class="postid-42 home">${body}</body></html>`, 'https://shop.example.com/x').templateKey
+  const post = (title: string, paragraphs: number, id: number) => `<header class="site-header"><nav><a href="/">Home</a><a href="/blog">Blog</a></nav></header>
+    <main class="post post-${id}"><h1>${title}</h1>${'<p>Some words.</p>'.repeat(paragraphs)}<script>var id=${id}</script></main><footer class="site-footer"><p>© Shop</p></footer>`
+  const listing = (cards: number) => `<header class="site-header"><nav><a href="/">Home</a></nav></header>
+    <main class="listing"><h1>Blog</h1><ul class="cards">${'<li class="card"><a href="/p">Post</a></li>'.repeat(cards)}</ul></main><footer class="site-footer"><p>© Shop</p></footer>`
+
+  it('is the same for pages built from one template, whatever their text, length or ids', () => {
+    expect(page(post('First', 2, 1))).toMatch(/^[0-9a-f]{16}$/)
+    expect(page(post('Another one entirely', 40, 977))).toBe(page(post('First', 2, 1)))
+    expect(page(listing(3))).toBe(page(listing(60)))
+  })
+
+  it('differs between templates, and is absent for an empty body', () => {
+    expect(page(listing(3))).not.toBe(page(post('First', 2, 1)))
+    expect(page(post('First', 2, 1).replace('class="post', 'class="product'))).not.toBe(page(post('First', 2, 1)))
+    expect(page('')).toBeUndefined()
+    expect(page('just text')).toBeUndefined()
+  })
+})
+

@@ -555,6 +555,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     if (parse) {
       doc = parseHtml(outcome.body!, finalUrl)
       if (doc.title) record.title = doc.title.slice(0, 1000)
+      if (doc.templateKey) record.template_key = doc.templateKey
     }
     site.pages.set(item.url, record)
     await write(record)
