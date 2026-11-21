@@ -55,7 +55,10 @@ describe('start URL', () => {
     const r = await crawl({ spec_version: 1, job_id: 'w', target: { start_url: `${origin}/w` }, scope: { allow_private: true }, limits: { per_host_rps: 50 } },
       { sink: new MemorySink(), throttle: new HostThrottle(), onFetched: (f) => { seen.push(f); throw new Error('a watcher that throws') } })
     expect(r.summary.status).toBe('completed')
-    expect(seen.map((f) => [f.url.replace(origin, ''), f.status, f.depth, f.from?.replace(origin, '') ?? null])).toEqual([['/w', 200, 0, null], ['/w/a', 200, 1, '/w'], ['/w/gone', 404, 1, '/w'], ['/w/b', 200, 2, '/w/a']])
+    // Pages are told in the order they answer, and two requests in flight can answer either way round: the start page first, the rest in any order.
+    const told = seen.map((f) => [f.url.replace(origin, ''), f.status, f.depth, f.from?.replace(origin, '') ?? null])
+    expect(told[0]).toEqual(['/w', 200, 0, null])
+    expect([...told].sort((x, y) => String(x[0]).localeCompare(String(y[0])))).toEqual([['/w', 200, 0, null], ['/w/a', 200, 1, '/w'], ['/w/b', 200, 2, '/w/a'], ['/w/gone', 404, 1, '/w']])
     for (const f of seen) expect(f.total_ms).toBeGreaterThanOrEqual(0)
     expect(seen).toHaveLength(r.site!.pages.size)
   })

@@ -170,7 +170,14 @@ describe('traces (C20 E5)', () => {
     site = `http://127.0.0.1:${(traced.address() as AddressInfo).port}`
   })
   afterAll(() => new Promise<void>((r) => traced.close(() => r())))
-  const suite: CheckSuite = { id: 'performance', version: '1', requires: ['http', 'browser'], rules: [rule], defaultSample: 1, async onBrowserPage(_c, bp) { await bp.page.waitForTimeout(300) } }
+  const suite: CheckSuite = { id: 'performance', version: '1', requires: ['http', 'browser'], rules: [rule], defaultSample: 1, async onBrowserPage(_c, bp) {
+    // Wait until the hero image is the LCP (a loaded machine paints it late), then a little longer.
+    await bp.page.waitForFunction(() => new Promise<boolean>((resolve) => {
+      new PerformanceObserver((list) => { if (list.getEntries().some((e) => (e as unknown as { url?: string }).url?.endsWith('/hero.svg'))) resolve(true) }).observe({ type: 'largest-contentful-paint', buffered: true })
+      setTimeout(() => resolve(false), 250)
+    }), undefined, { timeout: 30_000, polling: 300 }).catch(() => {})
+    await bp.page.waitForTimeout(300)
+  } }
   const spec = () => ({ spec_version: 1 as const, job_id: 't', target: { start_url: `${site}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50, max_pages: 1 }, suites: { performance: { enabled: true } } })
 
   it('records each request with its timing and size, what blocked rendering, the LCP, and what went wrong; never a body or a header', async () => {
