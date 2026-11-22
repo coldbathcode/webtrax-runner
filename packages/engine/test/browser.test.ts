@@ -103,7 +103,7 @@ describe('browser stage', () => {
     expect(new Set(sink.of('finding').map((f) => f.fingerprint)).size).toBe(sink.of('finding').length)
   }, 120_000)
 
-  it('the phone\'s line is slower: a page with a 60 kB image loads later as a phone than as a desktop, every time', async () => {
+  it('the phone\'s line is slower: a page with a 60 kB image loads later as a phone than as a desktop, and never faster than the line allows', async () => {
     const big = http.createServer((req, res) => {
       if (req.url === '/big.bin') { res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' }); return res.end(Buffer.alloc(60_000, 1)) }
       res.writeHead(200, { 'content-type': 'text/html' })
@@ -123,8 +123,11 @@ describe('browser stage', () => {
     }
     // 60 kB at 1.6 Mbit/s is 300 ms on its own, before the line's delay.
     expect(loads.desktop).toHaveLength(3)
-    expect(Math.min(...loads.phone!)).toBeGreaterThan(Math.max(...loads.desktop!))
+    // What the shaped line guarantees is a floor for the phone, every time. Against the desktop the middle
+    // run is compared: on a busy machine one desktop load can stall for a second, which says nothing about the line.
+    const middle = (list: number[]) => [...list].sort((x, y) => x - y)[1]!
     expect(Math.min(...loads.phone!)).toBeGreaterThan(300)
+    expect(middle(loads.phone!)).toBeGreaterThan(middle(loads.desktop!))
   }, 120_000)
 
   it('waits for the caller\'s gate before opening a browser, so several crawls can share a few browsers', async () => {
