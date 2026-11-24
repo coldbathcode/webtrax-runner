@@ -481,6 +481,10 @@
                 "type": "integer",
                 "minimum": 300,
                 "maximum": 399
+              },
+              "ms": {
+                "type": "number",
+                "minimum": 0
               }
             },
             "required": [
@@ -961,6 +965,144 @@
         "location",
         "content_type",
         "bytes"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "link"
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4096,
+          "pattern": "^https?:\\/\\/"
+        },
+        "internal": {
+          "type": "boolean"
+        },
+        "via": {
+          "type": "string",
+          "enum": [
+            "crawl",
+            "check",
+            "skipped"
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "broken",
+            "unverified",
+            "skipped"
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "type": "string",
+          "enum": [
+            "timeout",
+            "dns_error",
+            "connection_error",
+            "tls_error",
+            "blocked_by_scope",
+            "robots_disallowed",
+            "too_large",
+            "rate_limited",
+            "invalid_url"
+          ]
+        },
+        "final_url": {
+          "type": "string",
+          "maxLength": 4096,
+          "pattern": "^https?:\\/\\/"
+        },
+        "redirect_chain": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "maxLength": 4096,
+                "pattern": "^https?:\\/\\/"
+              },
+              "status": {
+                "type": "integer",
+                "minimum": 300,
+                "maximum": 399
+              },
+              "ms": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "url",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "from": {
+          "default": [],
+          "maxItems": 10000,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096,
+            "pattern": "^https?:\\/\\/"
+          }
+        },
+        "from_total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sitemaps": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096,
+            "pattern": "^https?:\\/\\/"
+          }
+        },
+        "canonical_from": {
+          "maxItems": 10000,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096,
+            "pattern": "^https?:\\/\\/"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "url",
+        "internal",
+        "via",
+        "outcome",
+        "status",
+        "final_url",
+        "redirect_chain",
+        "from"
       ],
       "additionalProperties": false
     },

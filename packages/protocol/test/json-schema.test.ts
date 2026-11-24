@@ -39,6 +39,6 @@ describe('JSON Schema export', () => {
   it('describes every run line type', () => {
     const runLine = JSON.parse(render('run-line'))
     const types = (runLine.oneOf ?? runLine.anyOf).map((s: { properties: { type: { const: string } } }) => s.properties.type.const)
-    expect(types.sort()).toEqual(['artifact', 'finding', 'metric', 'page', 'run', 'snapshot', 'summary'])
+    expect(types.sort()).toEqual(['artifact', 'finding', 'link', 'metric', 'page', 'run', 'snapshot', 'summary'])
   })
 })

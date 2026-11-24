@@ -1,0 +1,28 @@
+{
+  "name": "@webtrax/link-graph",
+  "version": "0.0.0",
+  "private": true,
+  "description": "What a site's links say about it, from one Webtrax run: what breaks if a page moves (impact_of_change), links that pass through redirects, and broken links ranked by how many pages carry them and how close they sit to key pages.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@webtrax/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "eslint": "^9.39.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
+  }
+}

@@ -17,13 +17,14 @@
  *   the shared host throttle.
  * - Time budget and cancellation stop the frontier and end the run `partial`.
  */
-import { createGuardedFetch, type GuardedFetch, type RedirectHop } from '@webtrax/net-guard'
+import { createGuardedFetch, type GuardedFetch } from '@webtrax/net-guard'
 import {
   BOT_USER_AGENT, fingerprint, JobSpec, normaliseUrl, PROTOCOL_VERSION, RuleMeta, severityRank, type BrowserProfileId, type FetchError, type FindingRecord, type JobSpecInput, type PageRecord,
-  type RunLine, type Severity, type StopReason, type SummaryRecord,
+  type RedirectHop, type RunLine, type Severity, type StopReason, type SummaryRecord,
 } from '@webtrax/protocol'
 import { isBrokenOutcome } from './classify'
 import { isHtml, parseHtml, type ParsedDoc } from './html'
+import { linkRecords } from './links'
 import { createRequester, type Outcome, type Requester } from './requester'
 import { ALLOW_ALL, parseRobots, type Robots } from './robots'
 import { parseSitemap } from './sitemap'
@@ -61,6 +62,8 @@ export interface EngineOptions {
   traces: boolean
   /** Overrides the spec's time budget (tests; the spec's minimum is 10 s). */
   timeBudgetMs?: number
+  /** Write a `link` record per link target before the summary (C06.9). */
+  linkRecords: boolean
 }
 
 export const ENGINE_DEFAULTS: EngineOptions = {
@@ -77,6 +80,7 @@ export const ENGINE_DEFAULTS: EngineOptions = {
   maxLinkChecks: 5_000,
   maxUrlLength: 2_000,
   drainMs: 15_000,
+  linkRecords: true,
 }
 
 /** A fetched HTML page, parsed once, as suites will receive it (C05.4). */
@@ -366,6 +370,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     clearTimeout(budgetTimer)
     clearTimeout(drainTimer)
     deps.signal?.removeEventListener('abort', onCancel)
+    // The link graph, one record per target (C06.9): before the summary, so a record the protocol refuses is counted in it.
+    if (site && opts.linkRecords) for (const r of linkRecords(site)) await write(r)
     const record: SummaryRecord = {
       type: 'summary', job_id: spec.job_id, started_at: startedAt, finished_at: new Date(clock.now()).toISOString(),
       findings: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },

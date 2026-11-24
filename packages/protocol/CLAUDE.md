@@ -2,7 +2,7 @@
 
 The runner protocol (C05.1): one definition of every record a run produces and the job spec that starts it. Apache-2.0; part of the open source runner (`runner/`, ADR 0010), consumed by the cloud for ingest (C04.5).
 
-- `src/schemas.ts`: Zod schemas and types: `JobSpec`, `RuleMeta`, and the NDJSON `RunLine` union (`run`, `page`, `finding`, `metric`, `snapshot`, `artifact`, `summary`). snake_case on the wire, like the database.
+- `src/schemas.ts`: Zod schemas and types: `JobSpec`, `RuleMeta`, and the NDJSON `RunLine` union (`run`, `page`, `finding`, `metric`, `snapshot`, `artifact`, `link`, `summary`). `link` (2026-11-24, C06.9): one per link target, written before the summary, with the engine's outcome and its source pages; readers from runner 0.1 refuse those lines. `RedirectHop.ms` is optional. snake_case on the wire, like the database.
 - `src/enums.ts`: suites, severities, run statuses, fetch and run errors. `suite` and `severity` must match the database enums in `packages/db/migrations/0001_baseline.sql` (a cloud-side test, `packages/db/test/protocol.test.ts`, reads the migration; the runner never reads files outside `runner/`).
 - `src/fingerprint.ts`: `fingerprint(ruleId, url, evidenceKey)`, sha256 over the normalised URL (Web Crypto, async). Never put timings or ordering in the key.
 - `src/url.ts`: `normaliseUrl`, with v1's semantics (fragment dropped, trailing slash removed except at the root).

@@ -42,6 +42,8 @@ const Config = z.strictObject({
   content: z.strictObject({
     dictionary: z.array(z.union([z.string().min(2).max(80), z.strictObject({ term: z.string().min(2).max(80), use: z.string().max(120).optional() })])).max(200).optional(),
   }).optional(),
+  /** Pages that matter most (pricing, sign-up, checkout): broken links on them, on the route to them or a click from them rank first (`rank_broken_links`). */
+  key_pages: z.array(z.string().min(1).max(2000)).max(20).optional(),
   fail_on: z.enum([...SEVERITIES, 'none']).optional(),
   reports: z.array(z.enum(['html', 'md', 'json', 'sarif', 'junit'])).optional(),
   /** Rule ids to leave out of reports and the exit code (they stay in run.ndjson). */

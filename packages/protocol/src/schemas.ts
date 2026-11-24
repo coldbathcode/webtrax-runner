@@ -154,6 +154,10 @@ export const MetricRecord = z.object({
 })
 export type MetricRecord = z.output<typeof MetricRecord>
 
+/** One redirect on the way to a page. `ms`: how long that answer took on the wire (throttle waits left out); absent before 2026-11-24 and for link checks, whose redirects the fetch follows itself. */
+export const RedirectHop = z.object({ url: HttpUrl, status: z.int().min(300).max(399), ms: z.number().min(0).optional() })
+export type RedirectHop = z.output<typeof RedirectHop>
+
 export const PageRecord = z.object({
   type: z.literal('page'),
   url: HttpUrl,
@@ -161,7 +165,7 @@ export const PageRecord = z.object({
   /** HTTP status of the final response; null when no response arrived (see `error`). */
   status: z.int().min(100).max(599).nullable(),
   error: z.enum(FETCH_ERRORS).optional(),
-  redirect_chain: z.array(z.object({ url: HttpUrl, status: z.int().min(300).max(399) })).default([]),
+  redirect_chain: z.array(RedirectHop).default([]),
   content_type: z.string().max(200).optional(),
   depth: z.int().min(0),
   timing_ms: z.object({ ttfb: z.number().min(0), total: z.number().min(0) }).optional(),
@@ -218,6 +222,42 @@ export const ArtifactRecord = z.object({
 })
 export type ArtifactRecord = z.output<typeof ArtifactRecord>
 
+/** How many source pages a `link` record lists before it only counts them. */
+export const LINK_SOURCES_MAX = 10_000
+export const LINK_OUTCOMES = ['ok', 'broken', 'unverified', 'skipped'] as const
+
+/**
+ * One link target the run met (C06.9, the link ledger and its edges; added
+ * 2026-11-24): what answered, judged the way the summary counts it, and where
+ * it is linked from. One record per distinct target, written after the
+ * findings. A redirect the crawl stopped at a page it already had is
+ * followed through that page, so `status`, `final_url` and `outcome` are
+ * where a visitor ends up and `redirect_chain` holds every hop on the way.
+ */
+export const LinkRecord = z.object({
+  type: z.literal('link'),
+  url: HttpUrl,
+  /** On the site being checked (the start URL's site). */
+  internal: z.boolean(),
+  /** Answered by the crawl fetching it as a page, by a link check, or not requested (robots.txt, the check limit). */
+  via: z.enum(['crawl', 'check', 'skipped']),
+  /** `broken` as the summary counts it; `unverified` for sign-in walls, refusals, bot walls, rate limits and robots.txt (V2-COR-03). */
+  outcome: z.enum(LINK_OUTCOMES),
+  status: z.int().min(100).max(599).nullable(),
+  error: z.enum(FETCH_ERRORS).optional(),
+  final_url: HttpUrl,
+  redirect_chain: z.array(RedirectHop).default([]),
+  /** Pages that link here with an anchor, in crawl order, up to `LINK_SOURCES_MAX`. */
+  from: z.array(HttpUrl).max(LINK_SOURCES_MAX).default([]),
+  /** Set when more pages link here than `from` lists. */
+  from_total: z.int().min(0).optional(),
+  /** Sitemaps that list it. */
+  sitemaps: z.array(HttpUrl).max(100).optional(),
+  /** Pages whose rel=canonical names it. */
+  canonical_from: z.array(HttpUrl).max(LINK_SOURCES_MAX).optional(),
+})
+export type LinkRecord = z.output<typeof LinkRecord>
+
 const SeverityCounts = z.object({ critical: z.int().min(0), high: z.int().min(0), medium: z.int().min(0), low: z.int().min(0), info: z.int().min(0) })
 
 export const SummaryRecord = z.object({
@@ -257,8 +297,10 @@ export type SummaryRecord = z.output<typeof SummaryRecord>
 
 /**
  * One line of a run's NDJSON. A run is: one `run` record first, then pages,
- * findings, metrics, snapshots and artifacts in any order, then one `summary`.
+ * findings, metrics, snapshots and artifacts in any order, then its `link`
+ * records, then one `summary`. Readers from before `link` records (runner
+ * 0.1) refuse those lines.
  */
-export const RunLine = z.discriminatedUnion('type', [RunRecord, PageRecord, FindingRecord, MetricRecord, SnapshotRecord, ArtifactRecord, SummaryRecord])
+export const RunLine = z.discriminatedUnion('type', [RunRecord, PageRecord, FindingRecord, MetricRecord, SnapshotRecord, ArtifactRecord, LinkRecord, SummaryRecord])
 export type RunLine = z.output<typeof RunLine>
 export type RunLineType = RunLine['type']

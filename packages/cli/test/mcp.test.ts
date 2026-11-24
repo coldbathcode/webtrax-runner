@@ -37,7 +37,7 @@ afterAll(async () => { await client.close(); await fixture.close() })
 describe('webtrax mcp', () => {
   it('lists the tools with valid input schemas, plus a prompt and resources', async () => {
     const { tools } = await client.listTools()
-    expect(tools.map((t) => t.name).sort()).toEqual(['audit_page', 'check_urls', 'compare_scans', 'explain_finding', 'get_finding', 'get_scan', 'list_findings', 'start_scan', 'wait_for_scan'])
+    expect(tools.map((t) => t.name).sort()).toEqual(['audit_page', 'check_urls', 'compare_scans', 'explain_finding', 'get_finding', 'get_scan', 'impact_of_change', 'list_findings', 'list_redirect_debt', 'rank_broken_links', 'start_scan', 'wait_for_scan'])
     for (const t of tools) expect(t.inputSchema.type, t.name).toBe('object')
     expect((await client.listPrompts()).prompts.map((p) => p.name)).toEqual(['pre-commit-site-check'])
     expect((await client.listResourceTemplates()).resourceTemplates.map((r) => r.uriTemplate)).toContain('webtrax://local/rules/{rule_id}')
@@ -86,6 +86,16 @@ describe('webtrax mcp', () => {
 
     const report = await client.readResource({ uri: 'webtrax://local/runs/latest/report.md' })
     expect((report.contents[0] as { text: string }).text).toMatch(/^## Webtrax report/)
+
+    // The link graph of the latest run (C06.9 slice d).
+    const impact = (await call(client, 'impact_of_change', { paths: ['/blog'] })).json()
+    expect(impact).toMatchObject({ run_id: second.run_id, untrusted_content: true })
+    expect([...impact.results[0].linked_from_pages.pages].sort()).toEqual(['/', '/about'])
+    expect(impact.results[0].cut_off_if_removed.pages).toEqual(['/blog/post-1', '/blog/post-2', '/server-error'])
+    const debt = (await call(client, 'list_redirect_debt', {})).json()
+    expect(debt.redirects).toEqual([expect.objectContaining({ address: '/old-page', redirects_to: '/about', hops: 1 })])
+    const reach = (await call(client, 'rank_broken_links', { key_pages: ['/blog/post-2'] })).json()
+    expect(reach.links[0]).toMatchObject({ target: '/missing', escalated: true, key_pages: [{ key_page: '/blog/post-2', how: 'on_page' }] })
   })
 
   it('refuses public targets unless started with --allow-public', async () => {

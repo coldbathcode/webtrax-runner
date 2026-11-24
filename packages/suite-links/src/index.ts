@@ -11,7 +11,7 @@
  * Not yet: `links.anchor.missing` and `links.asset.broken` (need the browser
  * stage or asset checks, C05.10).
  */
-import { couldNotVerify, linkProblem, type CheckSuite, type LinkOutcome, type SiteState, type SuiteCtx } from '@webtrax/engine'
+import { couldNotVerify, linkProblem, resolveLink, type CheckSuite, type LinkOutcome, type SiteState, type SuiteCtx } from '@webtrax/engine'
 import { normaliseUrl, type RuleMeta } from '@webtrax/protocol'
 
 const rule = (id: string, severity: RuleMeta['severity'], title: string, why: string, fix: string): RuleMeta => ({
@@ -100,24 +100,11 @@ const androidLinks = new WeakMap<SuiteCtx, string>()
  */
 const SOFT_404 = /^\s*(404\b|error\s*404\b|(oops[!,.]?\s*)?(page\s+)?not\s+found\b|(this\s+|the\s+)?page\s+((does\s+not|doesn['’]t)\s+exist|(cannot|can['’]t|could\s+not|couldn['’]t)\s+be\s+found)|sorry,?\s+(this|that|the)\s+page)/i
 const isErrorText = (text: string) => SOFT_404.test(text) || SOFT_404.test(text.split(/\s[|·–—-]\s/)[0] ?? '')
-const isRedirect = (s: number | null) => s !== null && s >= 300 && s < 400
 
-/** Follows a redirect the crawl stopped at a known page through that page's outcome. */
+/** Follows a redirect the crawl stopped at a known page through that page's outcome (the engine's `resolveLink`). */
 export function resolveOutcome(site: SiteState, target: string): { outcome: LinkOutcome; hops: number; finalUrl: string } | null {
-  let outcome = site.links.get(target)
-  if (!outcome) return null
-  let hops = outcome.chain.length
-  const seen = new Set([target])
-  for (;;) {
-    const next = normaliseUrl(outcome.finalUrl)
-    if (!isRedirect(outcome.status) || !next || seen.has(next)) break
-    const after = site.links.get(next)
-    if (!after) break
-    seen.add(next)
-    hops += after.chain.length
-    outcome = after
-  }
-  return { outcome, hops, finalUrl: outcome.finalUrl }
+  const r = resolveLink(site, target)
+  return r && { outcome: r.outcome, hops: r.hops, finalUrl: r.finalUrl }
 }
 
 const evidenceOf = (o: LinkOutcome, finalUrl: string, target: string) => ({

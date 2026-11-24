@@ -23,6 +23,8 @@ import { classifyError, crawl, LocalSink, MemorySink, TeeSink, type CrawledPage,
 import { createGuardedFetch } from '@webtrax/net-guard'
 import { atLeast, BOT_USER_AGENT, normaliseUrl, SEVERITIES, type JobSpecInput, type RunLine, type Severity } from '@webtrax/protocol'
 import { buildReport, renderHtml, renderMarkdown, type FindingGroup } from '@webtrax/reporters'
+import { brokenLinkReach, graphFromRun, impactOfChange, redirectDebt, type LinkGraph } from '@webtrax/link-graph'
+import { loadConfig } from './config'
 import { listRuns, readRun, RULES, SUITES } from './runs'
 
 export interface McpOptions {
@@ -91,6 +93,14 @@ export function createMcpServer(o: McpOptions): McpServer {
     const live = active.get(id)
     if (live && !live.result) throw new Error(`run ${id} is still running: call wait_for_scan`)
     return { id, lines: readRun(o.root, id) }
+  }
+  /** The link graph of a run (default: the latest). Runs from before `link` records have pages but no link targets. */
+  const graphOf = (runId?: string): { id: string; graph: LinkGraph } => {
+    const { id, lines } = records(runId)
+    const graph = graphFromRun(lines)
+    if (!graph) throw new Error(`run ${id} crawled no pages`)
+    if (!lines.some((l) => l.type === 'link')) throw new Error(`run ${id} was made by a runner without link records: run start_scan again`)
+    return { id, graph }
   }
   const findFinding = (id: string) => {
     for (const run of listRuns(o.root).reverse()) {
@@ -288,6 +298,50 @@ export function createMcpServer(o: McpOptions): McpServer {
     const rule = RULES.find((r) => r.id === id) ?? findFinding(id)?.finding.rule
     if (!rule) return fail(`no rule or finding ${id}`)
     return text({ rule_id: rule.id, title: rule.title, severity: rule.severity, why: rule.why, fix: rule.fix, docs: `https://docs.webtrax.dev/rules/${rule.docs_slug}/` })
+  })
+
+  const runIdProp = z.string().optional().describe('a run id from .webtrax/runs; default the latest')
+  server.registerTool('impact_of_change', {
+    title: 'What depends on a page',
+    description: 'Before you move, rename or remove pages: for each path, the pages that link to it, the pages it links to, and the pages visitors could no longer click through to if it were removed, with a low, medium or high risk. Answered from the latest run; runs no scan.',
+    inputSchema: { paths: z.array(z.string().max(2000)).min(1).max(20).describe('page paths or URLs of the site, such as /pricing'), run_id: runIdProp },
+    annotations: { readOnlyHint: true },
+  }, async ({ paths, run_id }) => {
+    try {
+      const { id, graph } = graphOf(run_id)
+      return text({ untrusted_content: true, note: UNTRUSTED_NOTE, run_id: id, ...impactOfChange(graph, paths) })
+    } catch (e) {
+      return fail((e as Error).message)
+    }
+  })
+
+  server.registerTool('list_redirect_debt', {
+    title: 'Links through redirects',
+    description: 'Internal links whose address redirects before the page: where each ends, the hops with what each took, the pages that carry the link, and the address to link to instead. Most links first. Change the href in the code to the final address.',
+    inputSchema: { run_id: runIdProp, limit: z.int().min(1).max(200).optional() },
+    annotations: { readOnlyHint: true },
+  }, async ({ run_id, limit }) => {
+    try {
+      const { id, graph } = graphOf(run_id)
+      return text({ untrusted_content: true, note: UNTRUSTED_NOTE, run_id: id, ...redirectDebt(graph, limit ? { limit } : {}) })
+    } catch (e) {
+      return fail((e as Error).message)
+    }
+  })
+
+  server.registerTool('rank_broken_links', {
+    title: 'Broken links by reach',
+    description: 'Broken links ranked by how close they sit to key pages (pricing, sign-up, checkout) and how many pages carry them. One on a key page, on the route from the start page to one, or one click from one is escalated: fix those first. key_pages defaults to key_pages in webtrax.yml; with none, the answer suggests some.',
+    inputSchema: { key_pages: z.array(z.string().max(2000)).max(20).optional().describe('paths such as /pricing'), run_id: runIdProp, limit: z.int().min(1).max(200).optional() },
+    annotations: { readOnlyHint: true },
+  }, async ({ key_pages, run_id, limit }) => {
+    try {
+      const { id, graph } = graphOf(run_id)
+      const keyPages = key_pages ?? loadConfig(o.root).config.key_pages ?? []
+      return text({ untrusted_content: true, note: UNTRUSTED_NOTE, run_id: id, ...brokenLinkReach(graph, { keyPages, ...(limit ? { limit } : {}) }) })
+    } catch (e) {
+      return fail((e as Error).message)
+    }
   })
 
   server.registerResource('latest-report', 'webtrax://local/runs/latest/report.md', { title: 'Latest Webtrax report', mimeType: 'text/markdown' }, async (uri) => {

@@ -8,8 +8,8 @@
  * Pages follow redirects one hop at a time, so the engine can stop at a hop
  * whose target it already has (one fetch per URL per scan).
  */
-import { discardBody, readTextCapped, type GuardedFetch, type RedirectHop } from '@webtrax/net-guard'
-import type { FetchError } from '@webtrax/protocol'
+import { discardBody, readTextCapped, type GuardedFetch } from '@webtrax/net-guard'
+import type { FetchError, RedirectHop } from '@webtrax/protocol'
 import { classifyError, isTransientError, isTransientStatus, retryAfterMs } from './classify'
 import type { HostThrottle, ThrottleClock } from './throttle'
 
@@ -59,7 +59,7 @@ const headFailed = (a: { status: number | null; retryAfter?: string | null | und
 const HTML = /text\/html|application\/xhtml\+xml/i
 
 /** One exchange, with what the retry logic needs to know. */
-type Attempt = Outcome & { retryAfter?: string | null; transientError?: boolean; location?: string | null }
+type Attempt = Outcome & { retryAfter?: string | null; transientError?: boolean; location?: string | null; wireMs?: number }
 
 interface OnceOptions { method: 'GET' | 'HEAD'; referer?: string | undefined; read: (contentType: string) => boolean; maxBytes: number; manual: boolean; userAgent?: string }
 
@@ -84,6 +84,7 @@ export function createRequester(o: RequesterOptions) {
   async function once(url: string, x: OnceOptions): Promise<Attempt> {
     const started = o.clock.now()
     await o.throttle.wait(new URL(url).host, o.rps, o.signal)
+    const sent = o.clock.now()
     const signal = AbortSignal.any([o.signal, AbortSignal.timeout(o.timeoutMs)])
     try {
       const { response, url: finalUrl, chain } = await o.fetch(url, { method: x.method, headers: headers(x.referer, x.userAgent), signal, ...(x.manual ? { redirect: 'manual' as const } : {}), ...(o.originHeaders ? { originHeaders: o.originHeaders } : {}) })
@@ -92,6 +93,7 @@ export function createRequester(o: RequesterOptions) {
       const base = {
         url, finalUrl, status: response.status, chain, headers: headersObject(response.headers), requests: 1 + chain.length,
         retryAfter: response.headers.get('retry-after'), location: response.headers.get('location'), ...(contentType ? { contentType } : {}),
+        wireMs: o.clock.now() - sent,
       }
       if (x.method === 'GET' && response.status < 300 && x.read(contentType ?? '')) {
         const { text, truncated } = await readTextCapped(response, x.maxBytes)
@@ -132,7 +134,7 @@ export function createRequester(o: RequesterOptions) {
     }
   }
 
-  const strip = ({ retryAfter: _r, transientError: _t, location: _l, ...rest }: Attempt): Outcome => rest
+  const strip = ({ retryAfter: _r, transientError: _t, location: _l, wireMs: _w, ...rest }: Attempt): Outcome => rest
 
   /** GET a page, following redirects hop by hop; stops early when `stopAt(next)` says the target is already known. */
   async function pageAttempt(url: string, referer: string | undefined, stopAt: (next: string) => boolean): Promise<Attempt> {
@@ -144,7 +146,7 @@ export function createRequester(o: RequesterOptions) {
       const r = await once(current, { method: 'GET', referer, read: (ct) => HTML.test(ct), maxBytes: o.maxBodyBytes, manual: true })
       requests += r.requests
       if (!isRedirect(r.status) || !r.location) return { ...r, url, chain, requests, timing: { ttfb: r.timing.ttfb, total: o.clock.now() - started } }
-      chain.push({ url: current, status: r.status! })
+      chain.push({ url: current, status: r.status!, ms: Math.round(r.wireMs ?? 0) })
       let next: string
       try {
         next = new URL(r.location, current).toString()
