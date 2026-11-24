@@ -11,7 +11,7 @@
  * Not yet: `links.anchor.missing` and `links.asset.broken` (need the browser
  * stage or asset checks, C05.10).
  */
-import { couldNotVerify, linkProblem, resolveLink, type CheckSuite, type LinkOutcome, type SiteState, type SuiteCtx } from '@webtrax/engine'
+import { couldNotVerify, linkOutcome, linkProblem, PROFILES, resolveLink, type CheckSuite, type LinkOutcome, type RenderedLinks, type SiteState, type SuiteCtx } from '@webtrax/engine'
 import { normaliseUrl, type RuleMeta } from '@webtrax/protocol'
 
 const rule = (id: string, severity: RuleMeta['severity'], title: string, why: string, fix: string): RuleMeta => ({
@@ -34,6 +34,8 @@ export const LINK_RULES = [
   rule('links.scheme.invalid', 'low', 'Phone, text or email link that cannot work', 'A tel:, sms: or mailto: link opens the visitor\'s phone or mail app with what follows it. When that is not a number or an address, tapping it does nothing or dials the wrong thing.', 'Write the number in international form with digits only (tel:+442079460000) and the address as it is (mailto:name@example.com). Keep words and spaces for the link\'s text.'),
   rule('links.device.response_differs', 'medium', 'Page answers a phone or a desktop browser differently', 'The same address gave one kind of visitor a working page and another an error. It is usually a redirect for phones to an address that no longer exists, or a rule on the server that turns some browsers away.', 'Open the address in that kind of browser and follow where it goes. Fix or remove the redirect, or the server rule, that sends it somewhere broken.'),
   rule('links.app.association_invalid', 'medium', 'App link file is missing or wrong', 'Links that should open your app need a file the phone fetches from your site: apple-app-site-association for iOS, assetlinks.json for Android. When it is missing, not valid JSON, redirected or served as the wrong type, the phone ignores it and the links open in the browser.', 'Serve the file at /.well-known/ with status 200, no redirect, as application/json, with the content Apple or Google documents for it.'),
+  rule('links.device.unreachable_on_phone', 'medium', 'Page a phone visitor has no link to', 'At desktop width this page is linked, but on the pages checked at phone width no link to it can be seen or reached by opening a menu. Usually its link sits in a menu or footer column that is hidden below a breakpoint, so phone visitors cannot get there by clicking.', 'Show the link at phone width too: put it in the phone menu, or stop hiding the part of the page it is in on small screens.'),
+  rule('links.device.covered', 'medium', 'Links covered by a fixed element', 'When the page loads, these links sit under an element fixed to the screen, such as a cookie banner, a chat button or a sticky bar. A tap on them hits that element instead.', 'Keep the fixed element clear of the content (reserve space for it, or make it smaller), or let visitors dismiss it before they need the links underneath.'),
   rule('links.unverified', 'info', 'Link could not be checked', 'The linked page asked for a sign-in or turned the check away (401, 403, 406, 407, 451 or a bot wall). That says nothing about whether it works for a visitor, so it is not counted as broken.', 'Nothing to fix unless the link should be public. Open it in a browser to see what a visitor gets.'),
   rule('links.not_checked', 'info', 'Some links were not checked', 'The scan checks a set number of distinct link targets. This site has more, so the rest were left unchecked rather than guessed at.', 'Nothing to fix. To check them all, scan a smaller part of the site at a time (scope.include), or raise the limit on a plan that allows it.'),
   rule('links.host_rate_limited', 'info', 'A host kept rate limiting the crawl', 'Some links on this host could not be checked; they are not reported as broken.', 'Allow WebtraxBot a higher rate (see webtrax.dev/bot), or lower the crawl rate.'),
@@ -235,11 +237,119 @@ export const linksSuite: CheckSuite = {
       }
     }
 
+    await renderedLinkRules(ctx, site)
+
     // Hosts that stayed rate limited: one info finding per host.
     const limited = new Map<string, number>()
     for (const o of site.links.values()) if (o.error === 'rate_limited') limited.set(new URL(o.url).origin, (limited.get(new URL(o.url).origin) ?? 0) + 1)
     for (const [origin, count] of limited) await ctx.emit({ rule_id: 'links.host_rate_limited', url: `${origin}/`, evidence: { urls: count } })
   },
+}
+
+/**
+ * Pages a desktop visitor can click through to from the start page and a
+ * phone visitor cannot. Each visitor walks the crawl's links: on a page the
+ * browser loaded at their size, only the links they could use there; on
+ * other pages, the page's links as crawled, except that a layout link (on
+ * more than half the pages: a menu or footer) the phone could not use on any
+ * page it loaded is taken to be missing on every page. When the crawl stopped
+ * early the walk is incomplete, so only such layout links are reported.
+ */
+export function unreachableOnPhone(site: SiteState, rendered: RenderedLinks[]): Map<string, { from: string[]; layout: boolean; text?: string }> {
+  const out = new Map<string, { from: string[]; layout: boolean; text?: string }>()
+  const node = (u: string) => {
+    const r = resolveLink(site, u)
+    return r && linkOutcome(r.outcome) === 'ok' && (r.outcome.status ?? 0) < 300 ? (normaliseUrl(r.finalUrl) ?? r.finalUrl) : null
+  }
+  const crawled = new Map<string, Set<string>>()
+  for (const e of site.edges) if (e.kind === 'link' && e.from !== e.to) (crawled.get(e.from) ?? crawled.set(e.from, new Set()).get(e.from)!).add(e.to)
+  const sources = new Map<string, number>()
+  for (const targets of crawled.values()) for (const t of targets) sources.set(t, (sources.get(t) ?? 0) + 1)
+  const phoneAt = new Map(rendered.filter(isPhone).map((r) => [r.url, r]))
+  const deskAt = new Map(rendered.filter((r) => !isPhone(r)).map((r) => [r.url, r]))
+  // Layout links hidden on every phone page that carries them.
+  const layoutHidden = new Set<string>()
+  if (crawled.size >= 4) {
+    for (const [t, n] of sources) {
+      if (n * 2 <= crawled.size) continue
+      const seen = [...phoneAt.values()].map((r) => r.links.find((l) => l.url === t)).filter((l) => l !== undefined)
+      if (seen.length && seen.every((l) => l.reach === 'hidden')) layoutHidden.add(t)
+    }
+  }
+  const usable = (r: RenderedLinks) => r.links.filter((l) => l.reach !== 'hidden').map((l) => l.url)
+  const walk = (at: Map<string, RenderedLinks>, skip: Set<string>) => {
+    const start = normaliseUrl(site.startUrl) ?? site.startUrl
+    const seen = new Set([start])
+    const queue = [start]
+    for (let q = 0; q < queue.length; q++) {
+      const page = queue[q]!
+      const r = at.get(page)
+      for (const t of r ? usable(r) : [...(crawled.get(page) ?? [])].filter((x) => !skip.has(x))) {
+        if (!t.startsWith(`${site.origin}/`)) continue
+        const n = node(t)
+        if (n && !seen.has(n)) { seen.add(n); queue.push(n) }
+      }
+    }
+    return seen
+  }
+  const onDesktop = walk(deskAt, new Set())
+  const onPhone = walk(phoneAt, layoutHidden)
+  const partial = site.incomplete !== undefined
+  for (const d of deskAt.values()) {
+    if (!phoneAt.has(d.url)) continue
+    for (const l of d.links) {
+      if (l.reach === 'hidden' || !l.url.startsWith(`${site.origin}/`)) continue
+      const n = node(l.url)
+      if (!n || n === d.url || !onDesktop.has(n) || onPhone.has(n)) continue
+      const layout = layoutHidden.has(l.url)
+      if (partial && !layout) continue
+      const m = out.get(n) ?? { from: [], layout, ...(l.text ? { text: l.text } : {}) }
+      if (!m.from.includes(d.url)) m.from.push(d.url)
+      out.set(n, m)
+    }
+  }
+  return out
+}
+
+const pathOf = (site: SiteState, url: string) => (url.startsWith(`${site.origin}/`) ? url.slice(site.origin.length) : url)
+const isPhone = (r: RenderedLinks) => PROFILES[r.profile]?.form === 'phone'
+
+/**
+ * Links as visitors see them (C06.10 slice c), from the pages the browser
+ * loaded (`site.rendered`). A page linked at desktop width with no usable
+ * link to it on any page checked at phone width, where the phone saw the same
+ * source page; and links whose centre sits under a fixed element at load.
+ */
+async function renderedLinkRules(ctx: SuiteCtx, site: SiteState): Promise<void> {
+  const rendered = site.rendered ?? []
+  const phone = rendered.filter(isPhone)
+  if (phone.length) {
+    for (const [url, m] of unreachableOnPhone(site, rendered)) {
+      await ctx.emit({
+        rule_id: 'links.device.unreachable_on_phone', url, source_url: m.from[0]!,
+        evidence: { linked_at_desktop_from: m.from.slice(0, 5).map((u) => pathOf(site, u)), phone_pages_checked: new Set(phone.map((r) => r.url)).size, ...(m.layout ? { in_site_menu: true } : {}), ...(m.text ? { link_text: m.text } : {}) },
+      })
+    }
+  }
+  // One finding per page and covering element, with every profile it was seen in.
+  const covered = new Map<string, { page: string; by: string; profiles: Set<string>; links: Map<string, string | undefined> }>()
+  for (const r of rendered) {
+    for (const l of r.links) {
+      if (l.reach !== 'visible' || !l.covered_by) continue
+      const key = `${r.url} ${l.covered_by}`
+      const c = covered.get(key) ?? { page: r.url, by: l.covered_by, profiles: new Set(), links: new Map() }
+      c.profiles.add(r.profile)
+      c.links.set(l.url, l.text)
+      covered.set(key, c)
+    }
+  }
+  for (const c of covered.values()) {
+    await ctx.emit({
+      rule_id: 'links.device.covered', url: c.page, evidence_key: c.by,
+      title: `${c.links.size} link${c.links.size === 1 ? '' : 's'} covered by ${c.by}`,
+      evidence: { covered_by: c.by, profiles: [...c.profiles], links: c.links.size, examples: [...c.links].slice(0, 5).map(([u, text]) => ({ href: pathOf(site, u), ...(text ? { text } : {}) })) },
+    })
+  }
 }
 
 export default linksSuite

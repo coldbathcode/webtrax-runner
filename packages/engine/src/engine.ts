@@ -30,6 +30,7 @@ import { ALLOW_ALL, parseRobots, type Robots } from './robots'
 import { parseSitemap } from './sitemap'
 import { MemorySink, type Sink } from './sink'
 import type { BrowserPage, CheckSuite, FindingInput, SuiteCtx } from './suite'
+import { readRenderedLinks, type RenderedLinks } from './rendered-links'
 import { recordTrace, type PageTrace } from './trace'
 import { startEgressProxy, type Refusal } from '@webtrax/net-proxy'
 import { launchBrowser } from './browser'
@@ -64,6 +65,8 @@ export interface EngineOptions {
   timeBudgetMs?: number
   /** Write a `link` record per link target before the summary (C06.9). */
   linkRecords: boolean
+  /** Read each loaded page's links as a visitor sees them, opening menus, after the suites (`site.rendered`, C06.10 slice c). */
+  renderedLinks: boolean
 }
 
 export const ENGINE_DEFAULTS: EngineOptions = {
@@ -81,6 +84,7 @@ export const ENGINE_DEFAULTS: EngineOptions = {
   maxUrlLength: 2_000,
   drainMs: 15_000,
   linkRecords: true,
+  renderedLinks: true,
 }
 
 /** A fetched HTML page, parsed once, as suites will receive it (C05.4). */
@@ -119,6 +123,10 @@ export interface SiteState {
   browser?: { pages: number; refused: Refusal[]; profiles?: BrowserProfileId[] }
   /** What the browser asked for on each page it loaded, per profile (C20 E5; `traces: false` turns it off). */
   traces?: PageTrace[]
+  /** Why the crawl did not see the whole site (a stop or a limit), set before the suites' onSite; absent when it did. */
+  incomplete?: StopReason
+  /** Links as a visitor sees them on each page the browser loaded, per profile (C06.10 slice c; `renderedLinks: false` turns it off). */
+  rendered?: RenderedLinks[]
   /** The sitemaps list more pages than the run keeps (`sitemapEntriesPerPage`): the rest were not read. */
   sitemapTruncated?: boolean
   /** Link targets left unchecked because the run reached `maxLinkChecks`. */
@@ -640,6 +648,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   // A suite that needs the browser and never got a page said nothing about anything: it is skipped, not clean (V2-COR-01).
   for (const s of active) if (s.requires.includes('browser') && s.onBrowserPage && !browserPages.has(s)) skippedSuites.add(s.id)
 
+  // Site-level rules may need to know the crawl did not see everything.
+  if (stopReason ?? limitHit) site.incomplete = (stopReason ?? limitHit)!
   for (const suite of active) if (suite.onSite) await runHook(suite, 'onSite', () => suite.onSite!(contexts.get(suite)!, site))
 
   async function browserStage(suites: CheckSuite[]) {
@@ -671,6 +681,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     let loaded = 0
     const refused: Refusal[] = []
     const traces: PageTrace[] = []
+    const rendered: RenderedLinks[] = []
     if (several) profileFindings = new Map()
     try {
       for (const [index, id] of profiles.entries()) {
@@ -730,6 +741,11 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
               }
               // After the suites, so what they waited for is in it. A trace is an extra: it never fails a page.
               if (trace) await trace.finish(bp.status, bp.loadMs).then((t) => traces.push(t), () => {})
+              // Last, because it opens menus. Like a trace, it never fails a page.
+              if (opts.renderedLinks && bp.status !== null && bp.status < 400) {
+                const links = await readRenderedLinks(page, url, id).catch(() => null)
+                if (links) rendered.push(links)
+              }
             } finally {
               await context.close().catch(() => {})
             }
@@ -744,6 +760,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     } finally {
       site.browser = { pages: loaded, refused, ...(several ? { profiles } : {}) }
       if (traces.length) site.traces = traces
+      if (rendered.length) site.rendered = rendered
       // Findings of the stage, each with the profiles it was seen in, in the order they were first found.
       const merged = profileFindings
       profileFindings = null
