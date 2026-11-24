@@ -96,6 +96,30 @@ export function buildLinkGraph(pages: PageInput[], links: LinkInput[], meta: { o
   return { ...meta, pages: pages.map((p) => ({ url: p.url, status: p.status, depth: p.depth })), links: out, siteWide, targets: targets.slice(0, TARGETS_MAX) }
 }
 
+const OUTCOMES: ReadonlySet<unknown> = new Set(['ok', 'broken', 'unverified', 'skipped'])
+const isInt = (v: unknown): v is number => Number.isInteger(v)
+/**
+ * Targets as stored in a file (the cloud's `graph.json` keeps `GraphTarget`s
+ * as they are), checked against a graph of `pages` pages: entries that do not
+ * parse are dropped, sources outside the pages too. Null when there is no list.
+ */
+export function parseTargets(input: unknown, pages: number): GraphTarget[] | null {
+  if (!Array.isArray(input)) return null
+  const out: GraphTarget[] = []
+  for (const t of input.slice(0, TARGETS_MAX) as Record<string, unknown>[]) {
+    if (!t || typeof t !== 'object' || typeof t.url !== 'string' || typeof t.final_url !== 'string' || !OUTCOMES.has(t.outcome) || !Array.isArray(t.from) || !Array.isArray(t.hops)) continue
+    const from = (t.from as unknown[]).filter((i): i is number => isInt(i) && i >= 0 && i < pages).slice(0, TARGET_SOURCES_MAX)
+    if (!from.length) continue
+    const hops = (t.hops as Record<string, unknown>[]).filter((h) => h && isInt(h.status)).map((h) => ({ status: h.status as number, ms: typeof h.ms === 'number' && h.ms >= 0 ? h.ms : null }))
+    out.push({
+      url: t.url, internal: t.internal === true, outcome: t.outcome as GraphTarget['outcome'], status: isInt(t.status) ? t.status : null,
+      ...(typeof t.error === 'string' ? { error: t.error } : {}), final_url: t.final_url, hops, from,
+      from_total: isInt(t.from_total) && t.from_total >= from.length ? t.from_total : from.length,
+    })
+  }
+  return out
+}
+
 /** The graph of a run on disk (run.ndjson), or null when it crawled no page. */
 export function graphFromRun(records: RunLine[]): LinkGraph | null {
   const pages = records.filter((r): r is PageRecord => r.type === 'page')

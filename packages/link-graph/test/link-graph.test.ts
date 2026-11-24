@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { brokenLinkReach, buildLinkGraph, findPage, impactOfChange, KEY_PAGE_HINT, redirectDebt } from '../src/index'
+import { brokenLinkReach, buildLinkGraph, findPage, impactOfChange, KEY_PAGE_HINT, parseTargets, redirectDebt } from '../src/index'
 
 const O = 'https://x.test'
 const page = (p: string, depth: number, status = 200) => ({ url: O + p, final_url: O + p, status, depth })
@@ -70,5 +70,14 @@ describe('brokenLinkReach', () => {
     expect(r.suggested_key_pages).toEqual(['/pricing', '/checkout'])
     expect(KEY_PAGE_HINT.test('/en-gb/sign-up')).toBe(true)
     expect(KEY_PAGE_HINT.test('/blog/pricing-thoughts')).toBe(false)
+  })
+})
+
+describe('parseTargets', () => {
+  it('reads targets back as stored, dropping what does not parse and sources past the pages', () => {
+    const stored = JSON.parse(JSON.stringify(g.targets))
+    expect(parseTargets(stored, g.pages.length)).toEqual(g.targets)
+    expect(parseTargets(undefined, 6)).toBeNull()
+    expect(parseTargets([{ ...stored[0], from: [99] }, { ...stored[0], outcome: 'gone' }, 'x', { ...stored[1], from: [1, 42] }], 6)).toEqual([{ ...g.targets![1], from: [1], from_total: g.targets![1]!.from_total }])
   })
 })

@@ -1,7 +1,7 @@
 // The link graph of a run (C06.9 slice d): the engine's `link` records on the
 // fixture site, and what @webtrax/link-graph reads from them. The cloud's
 // side of "the same answer from the hosted and local MCP" is in
-// services/app-api/test/link-graph-parity.test.ts.
+// the cloud worker's parity test.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { crawl, HostThrottle, MemorySink } from '@webtrax/engine'
 import { brokenLinkReach, graphFromRun, impactOfChange, redirectDebt, type LinkGraph } from '@webtrax/link-graph'
