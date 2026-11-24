@@ -16,6 +16,7 @@ function setup(files: Record<string, Outcome | undefined>, live: Record<string, 
     emit: async (f) => { emitted.push(f) }, metric: async () => {},
     request: async (url) => { fetched.push(url); return answer(url, live[url] ?? 404, '', 'text/html') },
     requestAs: async () => { throw new Error('the AI suite asks as no device') },
+    dns: async () => { throw new Error('no lookups') }, registration: async () => { throw new Error('no lookups') },
     text: async (url) => { fetched.push(url); return files[url] ?? answer(url, 404, 'Not found') },
   }
   const by = (id: string) => emitted.filter((f) => f.rule_id === id)

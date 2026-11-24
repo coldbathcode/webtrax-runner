@@ -25,6 +25,7 @@ import {
 import { isBrokenOutcome } from './classify'
 import { isHtml, parseHtml, type ParsedDoc } from './html'
 import { linkRecords } from './links'
+import { rdapRegistration, systemDns, type Lookups } from './lookups'
 import { createRequester, type Outcome, type Requester } from './requester'
 import { ALLOW_ALL, parseRobots, type Robots } from './robots'
 import { parseSitemap } from './sitemap'
@@ -164,6 +165,8 @@ export interface CrawlDeps {
   browserGate?: <T>(stage: () => Promise<T>) => Promise<T>
   /** Check suites available to this run; the spec's `suites` decides which run. */
   suites?: CheckSuite[]
+  /** DNS and domain registration for site-level rules; defaults to the system resolver and RDAP through the run's fetch (C06.9 slice e). */
+  lookups?: Partial<Lookups>
   runner?: { name: string; version: string }
   options?: Partial<EngineOptions>
 }
@@ -447,7 +450,19 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
 
   // 3. The crawl.
   const site: SiteState = { origin, startUrl, requestedStartUrl: spec.target.start_url, robots, pages: new Map(), links: new Map(), edges: [], sitemapUrls, ...(sitemapTruncated ? { sitemapTruncated } : {}) }
+  // Passive lookups, each answered once per run whichever suite asks.
+  const lookups: Lookups = {
+    dns: deps.lookups?.dns ?? systemDns,
+    registration: deps.lookups?.registration ?? rdapRegistration((url) => requester.text(url, 512 * 1024)),
+  }
+  const looked = new Map<string, Promise<unknown>>()
+  const once = <T>(key: string, f: () => Promise<T>): Promise<T> => {
+    if (!looked.has(key)) looked.set(key, f())
+    return looked.get(key) as Promise<T>
+  }
   const ctxFor = (suite: CheckSuite): SuiteCtx => ({
+    dns: (host) => once(`dns ${host.toLowerCase()}`, () => lookups.dns(host.toLowerCase()).catch(() => ({ status: 'error' as const, cname: [], addresses: [] }))),
+    registration: (domain) => once(`rdap ${domain.toLowerCase()}`, () => lookups.registration(domain.toLowerCase()).catch(() => 'unknown' as const)),
     spec, config: spec.suites[suite.id]?.config ?? {}, origin, startUrl, requestedStartUrl: spec.target.start_url, emit: emitFor(suite),
     request: (url) => { reachedUrls.add(normaliseUrl(url) ?? url); return requester.page(url, undefined, () => true) },
     text: (url, maxBytes = 256 * 1024) => { reachedUrls.add(normaliseUrl(url) ?? url); return requester.text(url, maxBytes) },

@@ -12,6 +12,7 @@ function ctx(start = `${O}/`) {
     // The app link files are absent, and every page answers a phone and a desktop browser.
     text: async (url) => ({ url, finalUrl: url, status: 404, chain: [], timing: { ttfb: 1, total: 1 }, requests: 1 }),
     requestAs: async (url) => ({ url, finalUrl: url, status: 200, chain: [], timing: { ttfb: 1, total: 1 }, requests: 1 }),
+    dns: async () => ({ status: 'ok', cname: [], addresses: [] }), registration: async () => 'unknown',
   }
   return { c, emitted, rules: () => emitted.map((f) => `${f.rule_id} ${f.url}${f.source_url ? ` <- ${f.source_url}` : ''}`) }
 }

@@ -17,6 +17,8 @@ function setup(start: string, httpAnswer: Partial<Outcome> = { status: 301, fina
     request: async (url) => { requested.push(url); return { url, finalUrl: url, status: null, chain: [], timing: { ttfb: 0, total: 0 }, requests: 1, ...httpAnswer } },
     text: async () => { throw new Error('security suite reads no text') },
     requestAs: async () => { throw new Error('security suite asks as no device') },
+    dns: async () => { throw new Error('no lookups here') },
+    registration: async () => { throw new Error('no lookups here') },
   }
   const page = (url: string, headers: Record<string, string>, html = '<p>x</p>'): CrawledPage => ({
     url, depth: 0, doc: parseHtml(html, url), outcome: { url, finalUrl: url, status: 200, chain: [], headers, timing: { ttfb: 1, total: 1 }, requests: 1 },

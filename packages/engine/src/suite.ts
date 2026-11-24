@@ -13,6 +13,7 @@
  * returning async iterables (simpler to write and to test), and `plan()` /
  * `onBrowserPage` arrive with the browser stage (C05.10).
  */
+import type { DnsAnswer, Registration } from './lookups'
 import type { Page } from 'playwright-core'
 import type { BrowserProfileId, Capability, FetchError, JobSpec, RuleMeta, Severity, SuiteId } from '@webtrax/protocol'
 import type { CrawledPage, SiteState } from './engine'
@@ -55,6 +56,10 @@ export interface SuiteCtx {
   requestAs(url: string, device: 'phone' | 'desktop'): Promise<Outcome>
   /** One guarded GET that follows redirects and reads the body whatever its type (robots.txt, llms.txt), at most `maxBytes` (default 256 KB). */
   text(url: string, maxBytes?: number): Promise<Outcome>
+  /** What DNS says about a host (passive; once per host per run). */
+  dns(host: string): Promise<DnsAnswer>
+  /** Whether a registrable domain is registered, from its registry over RDAP (passive; once per domain per run). */
+  registration(domain: string): Promise<Registration>
 }
 
 /** A page loaded once in Chromium (through the egress proxy), shared by every browser suite. */

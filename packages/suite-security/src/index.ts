@@ -15,7 +15,7 @@
  * security.txt (later C06 epics).
  */
 import { isIP } from 'node:net'
-import type { CheckSuite, CrawledPage, SuiteCtx } from '@webtrax/engine'
+import { registrableDomain, type CheckSuite, type CrawledPage, type SiteState, type SuiteCtx } from '@webtrax/engine'
 import type { RuleMeta } from '@webtrax/protocol'
 
 const rule = (id: string, severity: RuleMeta['severity'], title: string, why: string, fix: string): RuleMeta => ({
@@ -36,6 +36,8 @@ export const SECURITY_RULES = [
   rule('security.disclosure.version', 'low', 'Server software version disclosed', 'Version numbers in headers make it easy to match the site against known vulnerabilities.', 'Remove version numbers from the Server and X-Powered-By headers.'),
   rule('security.mixed_content', 'medium', 'HTTPS page loads resources over HTTP', 'Browsers block or warn about insecure resources, and they can be tampered with in transit.', 'Load every resource over https://.'),
   rule('security.form.insecure_action', 'high', 'Form on an HTTPS page submits over HTTP', 'Whatever the visitor types is sent unencrypted.', 'Change the form action to an https:// URL.'),
+  rule('security.takeover.domain_available', 'high', 'A domain the site uses can be registered by anyone', 'The site loads from or links to a domain that no longer exists and that its registry says is not registered. Whoever registers it next controls what is served there: a script or stylesheet from it would run on your pages, a frame would show their content inside yours, and a link would send visitors to them.', 'Remove or replace everything that points at the domain. If it was yours, register it again before someone else does.'),
+  rule('security.takeover.dangling_cname', 'high', 'A subdomain points at a service nothing is claimed on', 'A name on your domain is an alias (CNAME) for a hosting service, and that service has nothing set up there any more: the alias target does not exist, or the service answers that no site is configured. Anyone with an account on that service can usually claim the name and serve their own pages on your domain.', 'Delete the DNS record if the subdomain is no longer used, or set the site up again on the service so the name is yours.'),
   rule('security.form.password_over_http', 'high', 'Password field on an HTTP page', 'Passwords typed here can be read in transit; browsers warn visitors.', 'Serve the page, and the form\'s target, over HTTPS.'),
 ] satisfies RuleMeta[]
 
@@ -105,6 +107,109 @@ async function checkHeaders(ctx: SuiteCtx, page: CrawledPage) {
   }
 }
 
+type Kind = 'script' | 'stylesheet' | 'frame' | 'link'
+const KIND_RANK: Kind[] = ['script', 'stylesheet', 'frame', 'link']
+const KIND_SEVERITY: Record<Kind, RuleMeta['severity']> = { script: 'critical', stylesheet: 'critical', frame: 'high', link: 'medium' }
+/** Hosts the site's pages load scripts, stylesheets and frames from, per run (onPage to onSite). */
+const resources = new WeakMap<SuiteCtx, Map<string, { kind: Kind; url: string; pages: Set<string> }>>()
+
+/**
+ * Hosting services whose names can be claimed again once a site on them is
+ * gone (from the public can-i-take-over-xyz list, kept to those marked
+ * vulnerable). `nx`: the alias target no longer existing is the sign.
+ * `says`: what the service answers on the name when nothing is set up there.
+ */
+export const TAKEOVER_SERVICES: { name: string; host: RegExp; nx?: true; says?: RegExp }[] = [
+  { name: 'GitHub Pages', host: /\.github\.io$/, says: /There isn't a GitHub Pages site here/ },
+  { name: 'Amazon S3', host: /(^|\.)s3[.-]([a-z0-9-]+\.)?amazonaws\.com$/, says: /<Code>NoSuchBucket<\/Code>|The specified bucket does not exist/ },
+  { name: 'Microsoft Azure', host: /\.(azurewebsites\.net|cloudapp\.net|cloudapp\.azure\.com|trafficmanager\.net|blob\.core\.windows\.net|azureedge\.net|azure-api\.net|azurefd\.net|azurecontainer\.io|azurehdinsight\.net|redis\.cache\.windows\.net|search\.windows\.net|servicebus\.windows\.net)$/, nx: true },
+  { name: 'Heroku', host: /\.(herokuapp|herokudns|herokussl)\.com$/, nx: true, says: /no-such-app\.html|There's nothing here, yet\./ },
+  { name: 'Bitbucket', host: /\.bitbucket\.io$/, says: /Repository not found/ },
+  { name: 'Ghost', host: /\.ghost\.io$/, says: /Site unavailable\.|Failed to resolve DNS path for this host/ },
+  { name: 'Pantheon', host: /\.pantheonsite\.io$/, says: /The gods are wise, but do not know of the site which you seek/ },
+  { name: 'Surge', host: /\.surge\.sh$/, says: /project not found/ },
+  { name: 'Shopify', host: /\.myshopify\.com$/, says: /Sorry, this shop is currently unavailable/ },
+  { name: 'Tumblr', host: /^domains\.tumblr\.com$/, says: /Whatever you were looking for doesn't currently exist at this address/ },
+  { name: 'WordPress.com', host: /\.wordpress\.com$/, says: /Do you want to register .*\.wordpress\.com\?/ },
+  { name: 'ReadMe', host: /\.readme\.io$/, says: /Project doesnt exist\.\.\. yet!/ },
+  { name: 'Zendesk', host: /\.zendesk\.com$/, says: /Help Center Closed/ },
+]
+export const serviceFor = (target: string) => TAKEOVER_SERVICES.find((s) => s.host.test(target.toLowerCase().replace(/\.$/, '')))
+
+const hostOf = (url: string) => { try { return new URL(url).hostname.toLowerCase() } catch { return null } }
+const pathOf = (site: SiteState, url: string) => (url.startsWith(`${site.origin}/`) ? url.slice(site.origin.length) : url)
+
+/**
+ * Takeover watch (C06.9 slice e, F-A24). Passive: DNS, the registry's RDAP
+ * answer, and one ordinary GET of the site's own names that are aliases for a
+ * hosting service. Never claims or registers anything. Skipped for local
+ * targets.
+ */
+async function takeoverWatch(ctx: SuiteCtx, site: SiteState): Promise<void> {
+  const own = hostOf(site.origin)
+  if (!own || isLocalHost(own)) return
+  const ownDomain = registrableDomain(own)
+  // Other sites the pages use: resources from onPage, link targets from the crawl.
+  const used = new Map<string, { kind: Kind; url: string; pages: Set<string> }>(resources.get(ctx) ?? [])
+  for (const e of site.edges) {
+    if (e.kind !== 'link') continue
+    const host = hostOf(e.to)
+    if (!host || host === own) continue
+    const u = used.get(host) ?? { kind: 'link' as Kind, url: e.to, pages: new Set<string>() }
+    u.pages.add(e.from)
+    used.set(host, u)
+  }
+  // 1. Domains that no longer exist and can be registered: one finding per domain, at its worst use.
+  const byDomain = new Map<string, { kind: Kind; url: string; hosts: Set<string>; pages: Set<string> }>()
+  // At most 300 hosts a run are looked up: the rest are said nothing about.
+  for (const [host, u] of [...used].slice(0, 300)) {
+    const domain = registrableDomain(host)
+    if (!domain || domain === ownDomain || isLocalHost(host)) continue
+    // A link the crawl reached is there; only names that failed, and resources it never fetched, are looked up.
+    const outcome = site.links.get(u.url)
+    if (u.kind === 'link' && outcome && outcome.error !== 'dns_error') continue
+    if ((await ctx.dns(host)).status !== 'nxdomain') continue
+    const d = byDomain.get(domain) ?? { kind: u.kind, url: u.url, hosts: new Set<string>(), pages: new Set<string>() }
+    if (KIND_RANK.indexOf(u.kind) < KIND_RANK.indexOf(d.kind)) { d.kind = u.kind; d.url = u.url }
+    d.hosts.add(host)
+    for (const p of u.pages) d.pages.add(p)
+    byDomain.set(domain, d)
+  }
+  for (const [domain, d] of byDomain) {
+    if ((await ctx.registration(domain)) !== 'available') continue
+    const pages = [...d.pages].sort()
+    await ctx.emit({
+      rule_id: 'security.takeover.domain_available', url: d.url, ...(pages[0] ? { source_url: pages[0] } : {}), evidence_key: domain, severity: KIND_SEVERITY[d.kind],
+      title: `${d.kind === 'link' ? 'Links go' : d.kind === 'frame' ? 'A frame loads from' : `A ${d.kind} loads from`}${d.kind === 'link' ? ' to' : ''} ${domain}, which anyone can register`,
+      evidence: { domain, used_as: d.kind, hosts: [...d.hosts].slice(0, 5), pages: pages.slice(0, 5).map((p) => pathOf(site, p)), on_pages: pages.length, dns: 'does not exist', registry: 'not registered' },
+    })
+  }
+  // 2. The site's own names that are aliases for a service with nothing claimed on them.
+  const names = new Set([own])
+  for (const host of used.keys()) if (ownDomain && registrableDomain(host) === ownDomain) names.add(host)
+  if (ownDomain && ownDomain !== own) names.add(ownDomain)
+  for (const name of [...names].slice(0, 50)) {
+    const answer = await ctx.dns(name)
+    const target = answer.cname[answer.cname.length - 1]
+    const service = target ? serviceFor(target) : undefined
+    if (!target || !service) continue
+    let proof: string | null = null
+    if (service.nx && answer.status === 'nxdomain') proof = `${target} does not exist`
+    else if (service.says && answer.status === 'ok') {
+      const o = await ctx.text(`https://${name}/`, 64 * 1024)
+      const body = o.body ?? (o.error ? (await ctx.text(`http://${name}/`, 64 * 1024)).body : undefined)
+      const said = body?.match(service.says)?.[0]
+      if (said) proof = `${service.name} answers "${said.slice(0, 120)}"`
+    }
+    if (!proof) continue
+    await ctx.emit({
+      rule_id: 'security.takeover.dangling_cname', url: `https://${name}/`, evidence_key: name,
+      title: `${name} points at ${service.name}, where nothing is set up`,
+      evidence: { name, cname: answer.cname.slice(0, 8), service: service.name, proof },
+    })
+  }
+}
+
 export const securitySuite: CheckSuite = {
   id: 'security',
   version: '1.0.0',
@@ -116,6 +221,22 @@ export const securitySuite: CheckSuite = {
     const { $, baseUrl } = page.doc
     const https = page.url.startsWith('https://')
     const abs = (v: string) => { try { return new URL(v, baseUrl).toString() } catch { return null } }
+
+    // What the page loads from other hosts, for the takeover watch at the end of the run.
+    const used = resources.get(ctx) ?? new Map<string, { kind: Kind; url: string; pages: Set<string> }>()
+    resources.set(ctx, used)
+    const own = hostOf(page.url)
+    $('script[src], link[rel~="stylesheet" i][href], iframe[src]').each((_, el) => {
+      const tag = (el as { tagName?: string }).tagName?.toLowerCase()
+      const kind: Kind = tag === 'script' ? 'script' : tag === 'iframe' ? 'frame' : 'stylesheet'
+      const url = abs($(el).attr('src') ?? $(el).attr('href') ?? '')
+      const host = url && /^https?:/i.test(url) ? hostOf(url) : null
+      if (!host || host === own || used.size >= 500 && !used.has(host)) return
+      const u = used.get(host) ?? { kind, url: url!, pages: new Set<string>() }
+      if (KIND_RANK.indexOf(kind) < KIND_RANK.indexOf(u.kind)) { u.kind = kind; u.url = url! }
+      u.pages.add(page.url)
+      used.set(host, u)
+    })
 
     if (https) {
       const insecure = new Set<string>()
@@ -135,6 +256,10 @@ export const securitySuite: CheckSuite = {
     } else if (!isLocalHost(new URL(page.url).hostname) && $('input[type="password" i]').length) {
       await ctx.emit({ rule_id: 'security.form.password_over_http', url: page.url })
     }
+  },
+
+  async onSite(ctx, site) {
+    await takeoverWatch(ctx, site)
   },
 }
 
