@@ -1,0 +1,476 @@
+{
+  "defects": [
+    {
+      "rule_id": "ai_readiness.crawlers.inconsistent",
+      "severity": "medium",
+      "url": "https://shop.example/robots.txt",
+      "fingerprint": "536b5a8e13b1d27c4fccd2d08e6c49c03b158f6999c6574473289cb70dd87c65"
+    },
+    {
+      "rule_id": "ai_readiness.crawlers.policy",
+      "severity": "info",
+      "url": "https://shop.example/robots.txt",
+      "fingerprint": "d5232fb57a7f47fb2d508961d4c6da6672521f94e1a08a2f9e0b584a11eb4b3b"
+    },
+    {
+      "rule_id": "ai_readiness.llms_txt.invalid",
+      "severity": "low",
+      "url": "https://shop.example/llms.txt",
+      "fingerprint": "3097a2a3154272c13fb0fbaba02ac3dc581e02378d7b6d3ecb7c44865eb6c4dc"
+    },
+    {
+      "rule_id": "ai_readiness.schema.invalid",
+      "severity": "low",
+      "url": "https://shop.example/defects/ai_readiness.schema.invalid",
+      "fingerprint": "72e9d9c68bfc69f0e8fd4c61fac08146c90849638406094eb6e02969efe67757"
+    },
+    {
+      "rule_id": "content.copyright_stale",
+      "severity": "low",
+      "url": null,
+      "fingerprint": "e76f4b4919b2cdca51c52bf771268863565a88754cf7cffd22cdf5ef311d0d8b"
+    },
+    {
+      "rule_id": "content.date_stale",
+      "severity": "info",
+      "url": "https://shop.example/defects/content.date_stale",
+      "fingerprint": "47aa7cbcdba682428bb36666ea00c6c950d6986d164668fc8383c6f895dead7f"
+    },
+    {
+      "rule_id": "content.dictionary",
+      "severity": "medium",
+      "url": "https://shop.example/defects/content.dictionary",
+      "fingerprint": "b527d14e5731a0a4defe102d77d91418cb35aa352fb12a3919e607bd81922ffc"
+    },
+    {
+      "rule_id": "content.duplicate",
+      "severity": "low",
+      "url": "https://shop.example/defects/content.duplicate",
+      "fingerprint": "a402d557c271f67f52667b43a6ff22b5d1312765ab848643876d4ddce083e08f"
+    },
+    {
+      "rule_id": "content.empty_page",
+      "severity": "medium",
+      "url": "https://shop.example/defects/content.empty_page",
+      "fingerprint": "a61043401542abd8ab3c8383470149228b27aa4c1a32f00753829ad37ac76d52"
+    },
+    {
+      "rule_id": "content.placeholder",
+      "severity": "high",
+      "url": "https://shop.example/defects/content.placeholder",
+      "fingerprint": "b2f325b219f580b1ad52e88c850049f499b12b99ea974ab27ba7bc38772b6384"
+    },
+    {
+      "rule_id": "links.app.association_invalid",
+      "severity": "medium",
+      "url": "https://shop.example/.well-known/apple-app-site-association",
+      "fingerprint": "eb80ced183b4c74a75378e030e41564934372bdba75c06d8d36c03d90e260509"
+    },
+    {
+      "rule_id": "links.broken.external",
+      "severity": "medium",
+      "url": "https://partner.example/missing",
+      "source_url": "https://shop.example/defects/links.broken.external",
+      "fingerprint": "d3f0845ff06a655e3e0d74d5809d593942c716ba8c35e1be2587e296722c637a"
+    },
+    {
+      "rule_id": "links.broken.internal",
+      "severity": "high",
+      "url": "https://shop.example/defects/links.broken.internal/missing",
+      "source_url": "https://shop.example/defects/links.broken.internal",
+      "fingerprint": "eec5edb6e0d39baee3d1cec2317aeba11b2b5795ded48da7ad9d0ca61a89bfa9"
+    },
+    {
+      "rule_id": "links.canonical.broken",
+      "severity": "medium",
+      "url": "https://shop.example/defects/links.canonical.broken/gone",
+      "source_url": "https://shop.example/defects/links.canonical.broken",
+      "fingerprint": "3f14f52aa9cb1fd72fa301b8a9d31f5438833767b74dbdfce10a9bcb599b5790"
+    },
+    {
+      "rule_id": "links.device.response_differs",
+      "severity": "info",
+      "url": "https://botwall.example/",
+      "fingerprint": "585c99fdee3cf5299d6788e9307a6f4969c77d3073cb9db7a50f763bd58b51db"
+    },
+    {
+      "rule_id": "links.device.response_differs",
+      "severity": "medium",
+      "url": "https://shop.example/defects/links.device.response_differs",
+      "fingerprint": "aa68fa2dbc1d9346cf1ade7a2d8d8d8c3aef405d79836ea0937012590ca37b7f"
+    },
+    {
+      "rule_id": "links.dns_failure",
+      "severity": "high",
+      "url": "https://nowhere.example/",
+      "source_url": "https://shop.example/defects/links.dns_failure",
+      "fingerprint": "9a3b5c5b0a1505aea1d8ad004209ebf6e446e6510343f4f92804f0afc8be72e0"
+    },
+    {
+      "rule_id": "links.host_rate_limited",
+      "severity": "info",
+      "url": "https://busy.example/",
+      "fingerprint": "b794702b507a094c18bc2c6940c3a37dd0d5db9c13b084c6c08399ca31a9237d"
+    },
+    {
+      "rule_id": "links.orphan",
+      "severity": "info",
+      "url": "https://shop.example/defects/links.orphan",
+      "fingerprint": "b70ffbe1852444d41bd070e19a6659753f55ac1bcecd8132ab0d783f8f4fb4a3"
+    },
+    {
+      "rule_id": "links.redirect.chain",
+      "severity": "low",
+      "url": "https://shop.example/defects/links.redirect.chain/1",
+      "source_url": "https://shop.example/defects/links.redirect.chain",
+      "fingerprint": "4fe42e5ea2f0afc541c7b13ed6129f3dfd75cff08efca4734b98124b6bd1c6d6"
+    },
+    {
+      "rule_id": "links.redirect.to_http",
+      "severity": "medium",
+      "url": "http://shop.example/defects/links.redirect.to_http/target",
+      "source_url": "https://shop.example/defects/links.redirect.to_http",
+      "fingerprint": "a5acf086a3df789ed54414794dec9a43b552f09ca9d1744a6bf69456180c8b84"
+    },
+    {
+      "rule_id": "links.scheme.invalid",
+      "severity": "low",
+      "url": "https://shop.example/defects/links.scheme.invalid",
+      "fingerprint": "224ad5aba784c4873e652ba25373b62e994704f7d2328e557be2e252182176e5"
+    },
+    {
+      "rule_id": "links.sitemap.stale",
+      "severity": "low",
+      "url": "https://shop.example/defects/links.sitemap.stale",
+      "source_url": "https://shop.example/sitemap.xml",
+      "fingerprint": "629a615b4e61d8117096a2bf117cd32abb151eb79b0424dcd45fa8afe7930d46"
+    },
+    {
+      "rule_id": "links.soft_404",
+      "severity": "medium",
+      "url": "https://shop.example/defects/links.soft_404",
+      "fingerprint": "ec5a0c5ec15445741194e953f0227672034ae5acb8a36731d8a08675d7fd9f6d"
+    },
+    {
+      "rule_id": "links.timeout",
+      "severity": "medium",
+      "url": "https://partner.example/slow",
+      "source_url": "https://shop.example/defects/links.timeout",
+      "fingerprint": "02d9b854bfef972608c5fd27a7faffe5a29176045f7f56a6cb96adce5c5dcf69"
+    },
+    {
+      "rule_id": "links.unreachable",
+      "severity": "medium",
+      "url": "https://down.example/",
+      "source_url": "https://shop.example/defects/links.unreachable",
+      "fingerprint": "9ee4e8eee2458899b4e22c0298364810d6c4179d505188bd008ce68ce8779ab9"
+    },
+    {
+      "rule_id": "links.unverified",
+      "severity": "info",
+      "url": "https://members.example/",
+      "fingerprint": "9a469719dece6b585edbed1b3ffdce429115c6e89469a36bb40db84838652c40"
+    },
+    {
+      "rule_id": "security.disclosure.version",
+      "severity": "low",
+      "url": "https://shop.example/",
+      "fingerprint": "7014b284cd5bedf62492b90cabce5dc64e5814c541c15a5dfda651d123c6eb36"
+    },
+    {
+      "rule_id": "security.form.insecure_action",
+      "severity": "high",
+      "url": "https://shop.example/defects/security.form.insecure_action",
+      "fingerprint": "3590b12fce27776662d9df1b44214791be2bacf038c3532a7a4bb034f2db4f1d"
+    },
+    {
+      "rule_id": "security.header.csp_unsafe",
+      "severity": "low",
+      "url": "https://shop.example/",
+      "fingerprint": "27fd33e521fa7316d34e9ffd4909162199360914330d5f3508aa8e17c69ec65e"
+    },
+    {
+      "rule_id": "security.header.frame_protection_missing",
+      "severity": "medium",
+      "url": "https://shop.example/",
+      "fingerprint": "56372968a8014d9e3f650d564a244b3ffb3ac865b60bb1e6a379e6b88837c86d"
+    },
+    {
+      "rule_id": "security.header.hsts_missing",
+      "severity": "medium",
+      "url": "https://shop.example/",
+      "fingerprint": "b215bc08cef3c27ab5b0eac134efa2a05d90c51d571b0bf1e043775b5ebc9de2"
+    },
+    {
+      "rule_id": "security.header.nosniff_missing",
+      "severity": "low",
+      "url": "https://shop.example/",
+      "fingerprint": "9b48ecc58c037c55c7e9b167d8145e9c0b6726b1af84f2c3b702e507302a0fb1"
+    },
+    {
+      "rule_id": "security.header.permissions_policy_missing",
+      "severity": "info",
+      "url": "https://shop.example/",
+      "fingerprint": "f26aa4af3cf20b85beceb40aa2e9fb7832c8adeb3b48911874f2f8276ed6d0de"
+    },
+    {
+      "rule_id": "security.header.referrer_policy_missing",
+      "severity": "low",
+      "url": "https://shop.example/",
+      "fingerprint": "31f158b2e854505c12f302c271bf07174edee9876ce6cc4694941552b6edf454"
+    },
+    {
+      "rule_id": "security.https.not_enforced",
+      "severity": "high",
+      "url": "http://shop.example/",
+      "fingerprint": "2ae909d947c6f3b3edf5e258c751de4bd81b0ec77766ec4c2997ec1e24bc3872"
+    },
+    {
+      "rule_id": "security.mixed_content",
+      "severity": "medium",
+      "url": "https://shop.example/defects/security.mixed_content",
+      "fingerprint": "59f813b5e0a31cc9f69dc8bc4810a0c987b529ce246c85a11b4474d2a4a2bcd7"
+    },
+    {
+      "rule_id": "security.takeover.dangling_cname",
+      "severity": "high",
+      "url": "https://docs.shop.example/",
+      "fingerprint": "fce7a8df9384a7e57f902bae1ebb559358fcb7997bb6bc8c5eb5075ccdf7f670"
+    },
+    {
+      "rule_id": "security.takeover.domain_available",
+      "severity": "critical",
+      "url": "https://cdn.gone-brand.example/widget.js",
+      "source_url": "https://shop.example/defects/security.takeover.domain_available",
+      "fingerprint": "9494906b8a58ed08e4bc4307af7b1515cb4d9b99db21399488cee9875b3aec65"
+    },
+    {
+      "rule_id": "seo.canonical.cross_domain",
+      "severity": "medium",
+      "url": "https://shop.example/defects/seo.canonical.cross_domain",
+      "fingerprint": "79c35ddd15c46761548adeefe02fd2f3172a3766f33e9d8b6d15728c4d22ff93"
+    },
+    {
+      "rule_id": "seo.canonical.multiple",
+      "severity": "medium",
+      "url": "https://shop.example/defects/seo.canonical.multiple",
+      "fingerprint": "e3219590342ebaa22d47abca1ac852abff75d6412b275c5ad471a15cd8890d86"
+    },
+    {
+      "rule_id": "seo.h1.missing",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.h1.missing",
+      "fingerprint": "b5f58b3c0d3d737cab69c575edf11bc5a6c7b963940c905cb8b6a8b40b3d5aa3"
+    },
+    {
+      "rule_id": "seo.h1.multiple",
+      "severity": "info",
+      "url": "https://shop.example/defects/seo.h1.multiple",
+      "fingerprint": "bc8ac9b7ca6117bd4165be3d2ea2c0b8e558754f6e5f5e624f772f02bf3deed3"
+    },
+    {
+      "rule_id": "seo.headings.skipped_level",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.headings.skipped_level",
+      "fingerprint": "01b7aac41176c02c8dbd94c0494d77cffd25a47dbd38832af93edb7bf71b0fc6"
+    },
+    {
+      "rule_id": "seo.hreflang.invalid",
+      "severity": "medium",
+      "url": "https://shop.example/defects/seo.hreflang.invalid",
+      "fingerprint": "75e38fd38d62fc0bd0d232babe5ef891e9de9ddae0df4e50ad1323dccef3b38f"
+    },
+    {
+      "rule_id": "seo.lang.missing",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.lang.missing",
+      "fingerprint": "24081462838c2471b55305a5491734771b8e81a0d9c94807327ec5f090ec807e"
+    },
+    {
+      "rule_id": "seo.links.nofollow_internal",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.links.nofollow_internal",
+      "fingerprint": "390ff4c3e32ccef0297b62229aafcc0bd74e86d5f606f523d8f1fd9f9774142e"
+    },
+    {
+      "rule_id": "seo.meta_description.duplicate",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.meta_description.duplicate",
+      "fingerprint": "e3174f73b85ae459208e84e0a5db12d73202ad4805c64f4cc1d58e45a8d08fba"
+    },
+    {
+      "rule_id": "seo.meta_description.duplicate",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.meta_description.duplicate/twin",
+      "fingerprint": "03c217e9c7b2c856aa8db53b68ec048ffeaa1d0e2161398616843238e3c72f8f"
+    },
+    {
+      "rule_id": "seo.meta_description.missing",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.meta_description.missing",
+      "fingerprint": "a1d399ed7db290b750a5a351c33272b5eb7d8ce86d07ac7ad79d6e11c1e30fbd"
+    },
+    {
+      "rule_id": "seo.noindex",
+      "severity": "medium",
+      "url": "https://shop.example/defects/seo.noindex",
+      "fingerprint": "cdc0604ff86b39b52e60a9bcb1adbd8d9c747acf505e45d0c3310d3272abdb4a"
+    },
+    {
+      "rule_id": "seo.robots.blocks_sitemap_url",
+      "severity": "high",
+      "url": "https://shop.example/defects/seo.robots.blocks_sitemap_url",
+      "fingerprint": "f225209dd143d9bc282edf497654f5e9ce50d665a2f3fabec486389093ffbd63"
+    },
+    {
+      "rule_id": "seo.social.og_missing",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.social.og_missing",
+      "fingerprint": "cd0f762c16dbcf0462b8f399b2a32fc52c7197af4d680dc362581dce149e3211"
+    },
+    {
+      "rule_id": "seo.title.duplicate",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.title.duplicate",
+      "fingerprint": "2901b4a66ff02e939680589a0a427e46d1bd0a1453bf79cbf06f5cbd91240c6a"
+    },
+    {
+      "rule_id": "seo.title.duplicate",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.title.duplicate/twin",
+      "fingerprint": "62dfadde61fd8787a4422bb0e9e46b47449cc373739558e3cf00d68e2c5ebb58"
+    },
+    {
+      "rule_id": "seo.title.missing",
+      "severity": "medium",
+      "url": "https://shop.example/defects/seo.title.missing",
+      "fingerprint": "8aec0a26485a3590be0b50ce1e25dabd08117f15ec6d97a93963b662cb9ebc35"
+    },
+    {
+      "rule_id": "seo.title.too_long",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.title.too_long",
+      "fingerprint": "d9a20e99fde0fdab2a2194d1f35ad266c45d700aa7451f09db581570d4b385dd"
+    }
+  ],
+  "plain": [
+    {
+      "rule_id": "ai_readiness.crawlers.policy",
+      "severity": "info",
+      "url": "http://plain.example/robots.txt",
+      "fingerprint": "8cbc441f1c9907ef4acaf0f54584697114ba55f887f50c6842b6c53701b48eb9"
+    },
+    {
+      "rule_id": "ai_readiness.llms_txt.missing",
+      "severity": "low",
+      "url": null,
+      "fingerprint": "80917aa19b99a7121215817df01fe171f6fa085116f4d2a28c89b462b0ccd211"
+    },
+    {
+      "rule_id": "ai_readiness.schema.none",
+      "severity": "low",
+      "url": null,
+      "fingerprint": "53bde4980713e8ee5e20810a5e2ec24d28b31fcb59450029be3529c4e0ed16b7"
+    },
+    {
+      "rule_id": "security.form.password_over_http",
+      "severity": "high",
+      "url": "http://plain.example/defects/security.https.missing",
+      "fingerprint": "440244e4d65ea03d56e49897dfa44ba6b1b2c0298e1971bcd05bc1b519c6f747"
+    },
+    {
+      "rule_id": "security.header.csp_missing",
+      "severity": "medium",
+      "url": "http://plain.example/defects/security.https.missing",
+      "fingerprint": "86bb4a43c5ce99f96bdf4993a4ab7e92771c5d8bd81e604c24e9736de0077eb4"
+    },
+    {
+      "rule_id": "security.header.frame_protection_missing",
+      "severity": "medium",
+      "url": "http://plain.example/defects/security.https.missing",
+      "fingerprint": "569d8723833f9cb42e62c902b99bd659c730e263be914df62f348466b6e95319"
+    },
+    {
+      "rule_id": "security.header.nosniff_missing",
+      "severity": "low",
+      "url": "http://plain.example/defects/security.https.missing",
+      "fingerprint": "81b558e40d99408d63176b4f19caac5a121e8afca2cb1db2e3ba3abcf99cea19"
+    },
+    {
+      "rule_id": "security.header.permissions_policy_missing",
+      "severity": "info",
+      "url": "http://plain.example/defects/security.https.missing",
+      "fingerprint": "e8fe2da878f5ee91e6d764cdcd62b9449b5a29fda68495fce91373f6806c2d0e"
+    },
+    {
+      "rule_id": "security.header.referrer_policy_missing",
+      "severity": "low",
+      "url": "http://plain.example/defects/security.https.missing",
+      "fingerprint": "0b2f575233467e89ce8b8b609d78485603eaef1e634849f0665f18f09983e74d"
+    },
+    {
+      "rule_id": "security.https.missing",
+      "severity": "high",
+      "url": "http://plain.example/defects/security.https.missing",
+      "fingerprint": "4217fd07ac3507098a28006cd947c16a230fd1fdf8c110c240b06888b3f81a4a"
+    }
+  ],
+  "short": [
+    {
+      "rule_id": "links.redirect.start",
+      "severity": "info",
+      "url": "https://short.example/old-home",
+      "fingerprint": "509a83f1ba43c96cee830e59d21b5aeaa80c7673dd4d34dd4c349359c205520d"
+    },
+    {
+      "rule_id": "security.header.csp_missing",
+      "severity": "medium",
+      "url": "https://short.example/",
+      "fingerprint": "37fbc117430be8f9195816fe438b744a8ebb1adce6254a55d384452f0a223174"
+    },
+    {
+      "rule_id": "security.header.frame_protection_missing",
+      "severity": "medium",
+      "url": "https://short.example/",
+      "fingerprint": "e07583ecfd396f2614ee926bb6065855f21dd7561d22f578e4e81454aae16e7d"
+    },
+    {
+      "rule_id": "security.header.hsts_short",
+      "severity": "low",
+      "url": "https://short.example/",
+      "fingerprint": "c0f76c592d299c89a1f108cc6928fe9da50f559be99ffc409fd5b67563a4c349"
+    },
+    {
+      "rule_id": "security.header.nosniff_missing",
+      "severity": "low",
+      "url": "https://short.example/",
+      "fingerprint": "70d8bb99bc9a4c9349869f2ee0d02745e91a23a28b5c5dc0634ac19e463f5dec"
+    },
+    {
+      "rule_id": "security.header.permissions_policy_missing",
+      "severity": "info",
+      "url": "https://short.example/",
+      "fingerprint": "ab5fcc493f24f2ab2ecd33df414ed94a15c596392d40f134232b294f340a3c81"
+    },
+    {
+      "rule_id": "security.header.referrer_policy_missing",
+      "severity": "low",
+      "url": "https://short.example/",
+      "fingerprint": "1a940d9335c93d332854020c2c55dc782934fda48ecff9b530bc34616e6dcf78"
+    },
+    {
+      "rule_id": "security.https.not_enforced",
+      "severity": "high",
+      "url": "http://short.example/",
+      "fingerprint": "f23d2c15aa4b4709da4426bb5d89a0032aaa059cc55bb1bde4218d91bd68f823"
+    }
+  ],
+  "clean": [
+    {
+      "rule_id": "ai_readiness.crawlers.policy",
+      "severity": "info",
+      "url": "https://clean.example/robots.txt",
+      "fingerprint": "6836c87961f9c5d4d4378a7b9a78aea536af1c1fea7260014d5bf929a5e701d9"
+    }
+  ]
+}

@@ -61,7 +61,7 @@ const HTML = /text\/html|application\/xhtml\+xml/i
 /** One exchange, with what the retry logic needs to know. */
 type Attempt = Outcome & { retryAfter?: string | null; transientError?: boolean; location?: string | null; wireMs?: number }
 
-interface OnceOptions { method: 'GET' | 'HEAD'; referer?: string | undefined; read: (contentType: string) => boolean; maxBytes: number; manual: boolean; userAgent?: string }
+interface OnceOptions { method: 'GET' | 'HEAD'; referer?: string | undefined; read: (contentType: string) => boolean; maxBytes: number; manual: boolean; userAgent?: string; /** Read 4xx and 5xx bodies too (an error page can be the evidence). */ readErrors?: boolean }
 
 const headersObject = (h: { forEach(cb: (value: string, key: string) => void): void }) => {
   const out: Record<string, string> = {}
@@ -95,7 +95,7 @@ export function createRequester(o: RequesterOptions) {
         retryAfter: response.headers.get('retry-after'), location: response.headers.get('location'), ...(contentType ? { contentType } : {}),
         wireMs: o.clock.now() - sent,
       }
-      if (x.method === 'GET' && response.status < 300 && x.read(contentType ?? '')) {
+      if (x.method === 'GET' && (response.status < 300 || (x.readErrors && response.status >= 400)) && x.read(contentType ?? '')) {
         const { text, truncated } = await readTextCapped(response, x.maxBytes)
         return { ...base, body: text, truncated, timing: { ttfb, total: o.clock.now() - started } }
       }
@@ -162,8 +162,12 @@ export function createRequester(o: RequesterOptions) {
   return {
     /** A page: GET, reading the body when it is HTML, following redirects unless they reach a page `stopAt` knows. */
     page: (url: string, referer?: string, stopAt: (next: string) => boolean = () => false) => withRetries(() => pageAttempt(url, referer, stopAt)),
-    /** A plain-text resource (robots.txt, sitemaps): GET and read whatever it is, up to `maxBytes`. */
-    text: (url: string, maxBytes = o.maxBodyBytes) => withRetries(() => once(url, { method: 'GET', read: () => true, maxBytes, manual: false })),
+    /**
+     * A plain-text resource (robots.txt, sitemaps): GET and read whatever it is, up to `maxBytes`, error
+     * pages included: a hosting service says "nothing is set up here" with a 404 (takeover watch). Callers
+     * look at the status before trusting the body.
+     */
+    text: (url: string, maxBytes = o.maxBodyBytes) => withRetries(() => once(url, { method: 'GET', read: () => true, maxBytes, manual: false, readErrors: true })),
     /** The same URL asked for as another client (a phone's or a desktop's browser): GET, redirects followed, body not read. */
     as: (url: string, userAgent: string) => withRetries(() => once(url, { method: 'GET', read: () => false, maxBytes: 0, manual: false, userAgent })),
     /** A link target that will not be crawled: HEAD, then GET for statuses servers often get wrong on HEAD. */

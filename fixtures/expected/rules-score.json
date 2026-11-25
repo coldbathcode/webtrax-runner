@@ -1,0 +1,72 @@
+{
+  "defects": {
+    "version": 2,
+    "score": 65,
+    "grade": "D",
+    "pages": 46,
+    "suites": [
+      "links",
+      "security",
+      "seo",
+      "content",
+      "ai_readiness"
+    ],
+    "by_suite": {
+      "links": 60.8,
+      "security": 55,
+      "seo": 69,
+      "content": 80.8,
+      "ai_readiness": 94.7
+    }
+  },
+  "plain": {
+    "version": 2,
+    "score": 71,
+    "grade": "C",
+    "pages": 1,
+    "suites": [
+      "links",
+      "security",
+      "ai_readiness"
+    ],
+    "by_suite": {
+      "links": 100,
+      "security": 28.7,
+      "ai_readiness": 92
+    }
+  },
+  "short": {
+    "version": 2,
+    "score": 74,
+    "grade": "C",
+    "pages": 1,
+    "suites": [
+      "links",
+      "security"
+    ],
+    "by_suite": {
+      "links": 100,
+      "security": 41.7
+    }
+  },
+  "clean": {
+    "version": 2,
+    "score": 100,
+    "grade": "A",
+    "pages": 7,
+    "suites": [
+      "links",
+      "security",
+      "seo",
+      "content",
+      "ai_readiness"
+    ],
+    "by_suite": {
+      "links": 100,
+      "security": 100,
+      "seo": 100,
+      "content": 100,
+      "ai_readiness": 100
+    }
+  }
+}

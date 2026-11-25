@@ -10,7 +10,7 @@ let fixture: Awaited<ReturnType<typeof startFixtureSite>>
 beforeAll(async () => { fixture = await startFixtureSite() })
 afterAll(() => fixture.close())
 
-const rule = (id: string) => ({ id, suite: 'seo' as const, title: id, version: 1, severity: 'low' as const, why: 'w', fix: 'f', docs_slug: id.replace(/\./g, '-') })
+const rule = (id: string) => ({ id, suite: 'seo' as const, title: id, version: 1, severity: 'low' as const, why: 'w', fix: 'f', docs_slug: id.replace(/\./g, '-'), tags: [] })
 /** Reports every page it sees, twice: once as `seo.seen.page`, once as `seo.other.page`. */
 const seeing: CheckSuite = {
   id: 'seo', version: '0.0.0', requires: ['http'], rules: [rule('seo.seen.page'), rule('seo.other.page')],

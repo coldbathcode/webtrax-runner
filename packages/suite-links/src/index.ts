@@ -233,7 +233,7 @@ export const linksSuite: CheckSuite = {
         const problems = associationProblems(kind, { body: o.body, contentType: o.contentType, redirected: o.chain.length > 0 || (normaliseUrl(o.finalUrl) ?? o.finalUrl) !== (normaliseUrl(url) ?? url) })
         if (problems.length) await ctx.emit({ rule_id: 'links.app.association_invalid', url, title: `${path.split('/').pop()} ${problems[0]}`, evidence: { problems } })
       } else if (kind === 'android' && androidLinks.has(ctx) && o.error === undefined && o.status !== null && o.status < 500 && o.status !== 429) {
-        await ctx.emit({ rule_id: 'links.app.association_invalid', url, title: 'Pages declare an Android app link, and assetlinks.json is missing', evidence: { problems: [html ? 'is an HTML page, not the file' : `answers ${o.status}`], declared_on: androidLinks.get(ctx) } })
+        await ctx.emit({ rule_id: 'links.app.association_invalid', url, title: 'Pages declare an Android app link, and assetlinks.json is missing', evidence: { problems: [html && o.status < 300 ? 'is an HTML page, not the file' : `answers ${o.status}`], declared_on: androidLinks.get(ctx) } })
       }
     }
 
