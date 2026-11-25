@@ -57,6 +57,18 @@ describe('webtrax mcp', () => {
     expect(r.findings.map((f: { rule_id: string }) => f.rule_id)).toEqual(expect.arrayContaining(['links.broken.internal', 'links.broken.external', 'seo.lang.missing']))
   })
 
+  it('start_scan takes a scan profile, and checks only the pages named with urls and rules (verify after a fix)', async () => {
+    const quick = (await call(client, 'start_scan', { url: `${fixture.origin}/`, profile: 'quick' })).json()
+    expect((await call(client, 'wait_for_scan', { run_id: quick.run_id, timeout_s: 60 })).json().status).toMatch(/completed|partial/)
+    await new Promise((r) => setTimeout(r, 5))
+    const t = (await call(client, 'start_scan', { url: `${fixture.origin}/`, urls: ['/blog'], rules: ['links.broken'] })).json()
+    const done = (await call(client, 'wait_for_scan', { run_id: t.run_id, timeout_s: 60 })).json()
+    expect(done.summary.pages.crawled).toBe(1)
+    const found = (await call(client, 'list_findings', { run_id: t.run_id })).json()
+    expect(found.findings.map((f: { rule_id: string; url: string }) => [f.rule_id, new URL(f.url).pathname])).toEqual([['links.broken.internal', '/server-error']])
+    expect((await call(client, 'start_scan', { url: `${fixture.origin}/`, profile: 'targeted' })).error).toBe(true)
+  })
+
   it('start_scan, wait_for_scan, list_findings, get_finding, explain_finding and compare_scans work together', async () => {
     const first = (await call(client, 'start_scan', { url: `${fixture.origin}/` })).json()
     expect(first.status).toBe('running')

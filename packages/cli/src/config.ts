@@ -8,7 +8,7 @@ import { isIP } from 'node:net'
 import { resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
-import { BROWSER_PROFILES, SEVERITIES, type BrowserProfileId, type JobSpecInput, type Severity, type SuiteId } from '@webtrax/protocol'
+import { applyScanProfile, BROWSER_PROFILES, SCAN_PROFILE, SCAN_PROFILES, SEVERITIES, suitesOfRules, TARGETED_MAX_URLS, type BrowserProfileId, type JobSpecInput, type ScanProfileId, type Severity, type SuiteId } from '@webtrax/protocol'
 
 export const CONFIG_FILE = 'webtrax.yml'
 export const AVAILABLE_SUITES = ['links', 'security', 'seo', 'content', 'ai_readiness', 'a11y', 'performance'] as const satisfies readonly SuiteId[]
@@ -21,6 +21,8 @@ export type FailOn = Severity | 'none'
 const Config = z.strictObject({
   version: z.literal(1).default(1),
   target: z.string().optional(),
+  /** A scan profile (quick, standard, deep, release-gate, targeted): its suites, limits and devices, under whatever else this file sets. */
+  scan: z.enum(SCAN_PROFILES).optional(),
   scope: z.strictObject({
     include: z.array(z.string()).optional(),
     exclude: z.array(z.string()).optional(),
@@ -102,6 +104,12 @@ export interface CheckFlags {
   noExternal?: boolean
   /** Sent to the target's origin only (`auth.headers`). */
   headers?: Record<string, string>
+  /** A scan profile (`--scan`); `--urls` alone means `targeted`. */
+  scan?: ScanProfileId
+  /** The pages a targeted check looks at (`--urls`), absolute or relative to the target. */
+  urls?: string[]
+  /** Report only these rules or rule prefixes (`--rules`). */
+  rules?: string[]
 }
 
 /** Adds a scheme when the user typed a bare host (`webtrax check example.com`). */
@@ -121,14 +129,38 @@ export function buildSpec(config: Config, flags: CheckFlags, jobId: string): Job
   const target = flags.url ?? config.target
   if (!target) throw new ConfigError('no URL to check: pass one (webtrax check https://example.com) or set target in webtrax.yml')
   const startUrl = normaliseTarget(target)
-  const base = flags.suites ?? AVAILABLE_SUITES.filter((s) => config.suites?.[s]?.enabled ?? DEFAULT_SUITES.includes(s))
-  const profiles = flags.profiles ?? config.browser?.profiles
-  const suites = flags.browser || flags.profiles ? [...new Set([...base, ...BROWSER_SUITES])] : base
-  const limits = config.limits ?? {}
+  const scan = flags.scan ?? (flags.urls?.length ? 'targeted' : config.scan)
+  const urls = flags.urls?.map((u) => resolveUrl(u, startUrl))
+  if (scan === 'targeted' && !urls?.length) throw new ConfigError('a targeted check needs the pages to check: --urls /pricing,/signup')
+  if (urls && scan !== 'targeted') throw new ConfigError(`--urls is for targeted checks, not --scan ${scan}`)
+  if (urls && urls.length > TARGETED_MAX_URLS) throw new ConfigError(`--urls takes at most ${TARGETED_MAX_URLS} URLs`)
+  const dictionary = config.content?.dictionary?.length ? { content: { dictionary: config.content.dictionary } } : {}
+  const own = config.limits ?? {}
+  let suites: JobSpecInput['suites']
+  let profileLimits: { max_pages?: number; max_depth?: number } = {}
+  let profiles = flags.profiles ?? config.browser?.profiles
+  let extraProfilePages: number | undefined
+  if (scan) {
+    // The profile's suites, less any webtrax.yml turns off; --suites (or the rules asked about, for a targeted check) picks among them.
+    const asked = flags.suites ?? (scan === 'targeted' && flags.rules?.length ? suitesOfRules(flags.rules).filter((s): s is AvailableSuite => (AVAILABLE_SUITES as readonly string[]).includes(s)) : undefined)
+    const allowed = (asked ?? SCAN_PROFILE[scan].suites).filter((s) => config.suites?.[s as AvailableSuite]?.enabled !== false)
+    const part = applyScanProfile(scan, { only: flags.browser ? [...new Set([...allowed, ...BROWSER_SUITES])] : allowed, config: dictionary })
+    if (flags.browser) for (const s of BROWSER_SUITES) part.suites[s] ??= { enabled: true, config: {} }
+    suites = part.suites
+    profileLimits = part.limits
+    if (!profiles && part.browser) {
+      profiles = part.browser.profiles
+      extraProfilePages = part.browser.extra_profile_pages
+    }
+  } else {
+    const base = flags.suites ?? AVAILABLE_SUITES.filter((s) => config.suites?.[s]?.enabled ?? DEFAULT_SUITES.includes(s))
+    const chosen = flags.browser || flags.profiles ? [...new Set([...base, ...BROWSER_SUITES])] : base
+    suites = Object.fromEntries(chosen.map((s) => [s, { enabled: true, ...(s === 'content' && dictionary.content ? { config: dictionary.content } : {}) }]))
+  }
   return {
     spec_version: 1,
     job_id: jobId,
-    target: { start_url: startUrl },
+    target: { start_url: startUrl, ...(urls ? { urls } : {}) },
     scope: {
       include: config.scope?.include ?? [],
       exclude: config.scope?.exclude ?? [],
@@ -137,18 +169,40 @@ export function buildSpec(config: Config, flags: CheckFlags, jobId: string): Job
       allow_private: flags.allowPrivate || config.scope?.allow_private || isLocalTarget(startUrl),
     },
     limits: {
-      max_pages: flags.maxPages ?? limits.max_pages ?? 300,
-      max_depth: flags.maxDepth ?? limits.max_depth ?? 10,
-      concurrency: flags.concurrency ?? limits.concurrency ?? 4,
-      per_host_rps: flags.rps ?? limits.per_host_rps ?? 2,
-      time_budget_s: flags.timeBudget ?? limits.time_budget_s ?? 600,
+      max_pages: flags.maxPages ?? own.max_pages ?? profileLimits.max_pages ?? 300,
+      max_depth: flags.maxDepth ?? own.max_depth ?? profileLimits.max_depth ?? 10,
+      concurrency: flags.concurrency ?? own.concurrency ?? 4,
+      per_host_rps: flags.rps ?? own.per_host_rps ?? 2,
+      time_budget_s: flags.timeBudget ?? own.time_budget_s ?? 600,
     },
-    suites: Object.fromEntries(suites.map((s) => [s, { enabled: true, ...(s === 'content' && config.content?.dictionary?.length ? { config: { dictionary: config.content.dictionary } } : {}) }])),
+    suites,
+    ...(scan ? { profile: scan } : {}),
+    ...(flags.rules?.length ? { rules: flags.rules } : {}),
     ...(flags.headers && Object.keys(flags.headers).length ? { auth: { headers: flags.headers } } : {}),
-    ...(profiles ? { browser: { profiles } } : {}),
+    ...(profiles ? { browser: { profiles, ...(extraProfilePages ? { extra_profile_pages: extraProfilePages } : {}) } } : {}),
     labels: { source: 'cli' },
   }
 }
+
+/** A `--urls` entry: absolute, or a path on the target's site. */
+function resolveUrl(value: string, startUrl: string): string {
+  let url: URL
+  try {
+    url = new URL(value, startUrl)
+  } catch {
+    throw new ConfigError(`--urls: not a URL or path: ${value}`)
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new ConfigError(`--urls: only http and https URLs can be checked: ${value}`)
+  return url.toString()
+}
+
+export function parseScan(value: string): ScanProfileId {
+  if ((SCAN_PROFILES as readonly string[]).includes(value)) return value as ScanProfileId
+  throw new ConfigError(`--scan must be one of ${SCAN_PROFILES.join(', ')}`)
+}
+
+/** A comma-separated list (`--urls`, `--rules`). */
+export const parseList = (value: string): string[] => [...new Set(value.split(',').map((s) => s.trim()).filter(Boolean))]
 
 /** `--header name:value` (or `name: value`), repeatable. */
 export function parseHeaders(values: string[]): Record<string, string> {
@@ -216,6 +270,9 @@ suites:
 #   dictionary:
 #     - { term: "Acme Classic", use: "Acme One" }
 #     - "free forever"
+
+# A scan profile: quick, standard, deep, release-gate (or targeted, with --urls). Settings above win over it.
+# scan: standard
 
 # Exit with code 1 when a finding is at least this severe (critical, high, medium, low, info, none).
 fail_on: high

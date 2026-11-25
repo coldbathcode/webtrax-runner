@@ -6,7 +6,7 @@
  * crawled site is escaped; only http(s) URLs become links.
  */
 import { SEVERITIES } from '@webtrax/protocol'
-import { caveatText, countsText, durationText, kilobytes, PROFILE_LABELS, seconds, speedProfiles, statusText, target, type FindingGroup, type Report, type SpeedRow } from './model'
+import { caveatText, countsText, durationText, kilobytes, PROFILE_LABELS, profileText, seconds, speedProfiles, statusText, target, type FindingGroup, type Report, type SpeedRow } from './model'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 /** Lab speed by browser profile, the slowest pages first. Empty without measurements. */
@@ -87,7 +87,7 @@ export function renderHtml(r: Report): string {
 <header>
 <p class="brand">Webtrax</p>
 <h1>Report for ${esc(target(r))}</h1>
-<p class="muted">${esc(statusText(r))} · ${esc(new Date(s.started_at).toUTCString())} · ${esc(durationText(r))}</p>
+<p class="muted">${esc(statusText(r))}${profileText(r) ? ` · ${esc(profileText(r)!)}` : ''} · ${esc(new Date(s.started_at).toUTCString())} · ${esc(durationText(r))}</p>
 </header>
 <main>
 <section aria-labelledby="summary">

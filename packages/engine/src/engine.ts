@@ -16,10 +16,14 @@
  * - Politeness, timeouts, retries and 429 handling live in the requester and
  *   the shared host throttle.
  * - Time budget and cancellation stop the frontier and end the run `partial`.
+ * - **Targeted** (C06.8, `target.urls`): only the start page's answer and the
+ *   URLs named are fetched as pages; their links are checked, never crawled,
+ *   and sitemaps are not read. `rules` narrows what is reported. A suite
+ *   whose config says `start_only` sees the start page only.
  */
 import { createGuardedFetch, type GuardedFetch } from '@webtrax/net-guard'
 import {
-  BOT_USER_AGENT, fingerprint, JobSpec, normaliseUrl, PROTOCOL_VERSION, RuleMeta, severityRank, type BrowserProfileId, type FetchError, type FindingRecord, type JobSpecInput, type PageRecord,
+  BOT_USER_AGENT, fingerprint, JobSpec, normaliseUrl, PROTOCOL_VERSION, RuleMeta, ruleSelected, severityRank, type BrowserProfileId, type FetchError, type FindingRecord, type JobSpecInput, type PageRecord,
   type RedirectHop, type RunLine, type Severity, type StopReason, type SummaryRecord,
 } from '@webtrax/protocol'
 import { isBrokenOutcome } from './classify'
@@ -351,6 +355,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   const emitFor = (suite: CheckSuite) => async (input: FindingInput) => {
     const rule = rules.get(input.rule_id)
     if (!rule || rule.suite !== suite) throw new Error(`suite ${suite.id} emitted undeclared rule ${input.rule_id}`)
+    // A targeted check asked about some rules only: the others are not reported (and so not resolved by this run).
+    if (!ruleSelected(rule.meta.id, spec.rules)) return
     const url = input.url === null ? null : (normaliseUrl(input.url) ?? input.url)
     const fp = await fingerprint(rule.meta.id, url, input.evidence_key ?? '')
     const key = `${fp} ${input.source_url ?? ''}`
@@ -429,7 +435,9 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
 
   const sitemapUrls: string[] = []
   const sitemapLocs: { loc: string; sitemap: string }[] = []
-  const sitemapQueue = [...new Set([`${origin}/sitemap.xml`, ...robots.sitemaps()])].filter((u) => {
+  // A targeted check fetches only what it was asked about: no sitemaps.
+  const targeted = (spec.target.urls?.length ?? 0) > 0
+  const sitemapQueue = targeted ? [] : [...new Set([`${origin}/sitemap.xml`, ...robots.sitemaps()])].filter((u) => {
     try { return isInternal(u) } catch { return false }
   })
   const maxSitemapEntries = Math.max(5_000, spec.limits.max_pages * opts.sitemapEntriesPerPage)
@@ -548,7 +556,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
 
   const discover = (url: string, depth: number, referer: string) => {
     if (queued.has(url) || site.links.has(url)) return
-    if (isInternal(url) && robots.isAllowed(url) && crawlable(url, depth)) enqueue({ url, depth, referer })
+    if (!targeted && isInternal(url) && robots.isAllowed(url) && crawlable(url, depth)) enqueue({ url, depth, referer })
     else checkLink(url, referer)
   }
 
@@ -594,7 +602,10 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     pagesCrawled += 1
     const crawled: CrawledPage = { url: finalUrl, depth: item.depth, outcome, doc }
     await deps.onPage?.(crawled)
-    for (const suite of active) if (suite.onPage) await runHook(suite, 'onPage', () => suite.onPage!(contexts.get(suite)!, crawled), finalUrl)
+    for (const suite of active) {
+      if (!suite.onPage || (spec.suites[suite.id]?.config.start_only === true && item.url !== startUrl)) continue
+      await runHook(suite, 'onPage', () => suite.onPage!(contexts.get(suite)!, crawled), finalUrl)
+    }
     if (doc.canonical) {
       const canonical = normaliseUrl(doc.canonical, doc.baseUrl)
       if (canonical && canonical !== finalUrl) {
@@ -613,9 +624,21 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     }
   }
 
-  // Seeds: the start page (already fetched), then sitemap entries.
-  enqueue({ url: startUrl, depth: 0, prefetched: start })
+  // Seeds: the start page (already fetched), then sitemap entries; for a targeted check, the URLs named instead.
+  const named = targeted ? [...new Set(spec.target.urls!.map((u) => normaliseUrl(u)).filter((u): u is string => !!u && u.length <= opts.maxUrlLength))] : []
+  if (!targeted || named.includes(startUrl)) enqueue({ url: startUrl, depth: 0, prefetched: start })
+  else {
+    // Not asked about, but fetched: links to it are answered by that fetch.
+    queued.add(startUrl)
+    recordLink(startUrl, true, 'crawl', start)
+  }
   if (startUrl !== normaliseUrl(spec.target.start_url)) queued.add(normaliseUrl(spec.target.start_url) ?? spec.target.start_url)
+  for (const url of named) {
+    if (queued.has(url)) continue
+    // Another site's URL, or one robots.txt keeps the crawler out of, is checked as a link: never fetched as a page.
+    if (isInternal(url) && (robots.isAllowed(url) || !spec.scope.respect_robots)) enqueue({ url, depth: 0 })
+    else checkLink(url, startUrl)
+  }
   for (const { loc, sitemap } of sitemapLocs) {
     const url = normaliseUrl(loc)
     if (!url || !isInternal(url)) continue

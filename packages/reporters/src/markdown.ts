@@ -4,7 +4,7 @@
  * and the fix. The same input always gives the same text.
  */
 import { SEVERITIES } from '@webtrax/protocol'
-import { caveatText, countsText, durationText, kilobytes, PROFILE_LABELS, scoreText, seconds, speedProfiles, statusText, target, type FindingGroup, type Report, type SpeedRow } from './model'
+import { caveatText, countsText, durationText, kilobytes, PROFILE_LABELS, profileText, scoreText, seconds, speedProfiles, statusText, target, type FindingGroup, type Report, type SpeedRow } from './model'
 
 export interface MarkdownOptions { /** Findings per severity before "… and N more". Default 50. */ maxPerSeverity?: number }
 
@@ -25,6 +25,7 @@ export function renderMarkdown(r: Report, o: MarkdownOptions = {}): string {
     `## Webtrax report: ${target(r)}`,
     '',
     `- Status: ${statusText(r)}`,
+    ...(profileText(r) ? [`- Scan: ${profileText(r)}`] : []),
     `- Pages crawled: ${s.pages.crawled}; links checked: ${s.links.checked}; duration: ${durationText(r)}`,
     ...(scoreText(r) ? [`- Health score: ${scoreText(r)} ([how it is worked out](https://docs.webtrax.dev/health-score/))`] : []),
     `- Findings: ${countsText(r.counts)}`,

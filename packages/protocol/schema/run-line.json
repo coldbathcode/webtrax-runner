@@ -215,6 +215,26 @@
                 "additionalProperties": false
               }
             },
+            "profile": {
+              "type": "string",
+              "enum": [
+                "quick",
+                "standard",
+                "deep",
+                "release-gate",
+                "targeted",
+                "custom"
+              ]
+            },
+            "rules": {
+              "minItems": 1,
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*$"
+              }
+            },
             "auth": {
               "type": "object",
               "properties": {

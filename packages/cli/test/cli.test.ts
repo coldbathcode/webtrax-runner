@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startFixtureSite } from '../../../fixtures/site/server.mjs'
 import { EXIT, failureReason, main, VERSION, type Io } from '../src/main'
+import { buildSpec, loadConfig } from '../src/config'
 
 let fixture: Awaited<ReturnType<typeof startFixtureSite>>
 let cwd: string
@@ -163,6 +164,54 @@ describe('--profile', () => {
     expect(readFileSync(join(cwd, '.webtrax', 'runs', runs()[0]!, 'report.md'), 'utf8')).toContain('| Page | Desktop LCP | Desktop CLS | Desktop weight | Phone LCP | Phone CLS | Phone weight |')
     expect(await main(['check', `${fixture.origin}/`, '--profile', 'tablet'], io().io)).toBe(EXIT.usage)
   }, 120_000)
+})
+
+describe('--scan and targeted checks', () => {
+  const spec = (flags: Parameters<typeof buildSpec>[1], config: Parameters<typeof buildSpec>[0] = loadConfig(tmpdir()).config) => buildSpec(config, { url: 'https://example.com/', ...flags }, 'job')
+
+  it('expands a profile into the spec, under flags and webtrax.yml', () => {
+    const quick = spec({ scan: 'quick' })
+    expect(quick.profile).toBe('quick')
+    expect(Object.keys(quick.suites!)).toEqual(['links', 'security', 'seo', 'ai_readiness', 'performance'])
+    expect(quick.limits?.max_pages).toBe(50)
+    expect(quick.suites!.seo).toEqual({ enabled: true, config: { start_only: true } })
+    expect(quick.browser).toEqual({ profiles: ['phone'] })
+    // Flags win over the profile.
+    expect(spec({ scan: 'quick', maxPages: 10, suites: ['links', 'seo'] })).toMatchObject({ limits: { max_pages: 10 }, suites: { links: { enabled: true }, seo: { enabled: true } } })
+    expect(Object.keys(spec({ scan: 'quick', suites: ['links', 'seo'] }).suites!)).toEqual(['links', 'seo'])
+    // webtrax.yml turning a suite off wins too.
+    const off = { ...loadConfig(tmpdir()).config, suites: { a11y: { enabled: false } } }
+    expect(Object.keys(spec({ scan: 'deep' }, off).suites!)).not.toContain('a11y')
+    // No profile: as before.
+    expect(spec({}).profile).toBeUndefined()
+    expect(Object.keys(spec({}).suites!)).toEqual(['links', 'security', 'seo', 'content', 'ai_readiness'])
+  })
+
+  it('--urls means targeted: paths resolve on the target, and the suites follow --rules', () => {
+    const t = spec({ urls: ['/pricing', 'https://example.com/signup'], rules: ['links.broken', 'seo.title'] })
+    expect(t).toMatchObject({ profile: 'targeted', target: { start_url: 'https://example.com/', urls: ['https://example.com/pricing', 'https://example.com/signup'] }, rules: ['links.broken', 'seo.title'] })
+    expect(Object.keys(t.suites!)).toEqual(['links', 'seo'])
+    expect(() => spec({ scan: 'targeted' })).toThrow(/--urls/)
+    expect(() => spec({ scan: 'quick', urls: ['/a'] })).toThrow(/targeted/)
+    expect(() => spec({ urls: Array.from({ length: 201 }, (_, i) => `/p${i}`) })).toThrow(/200/)
+  })
+
+  it('checks only the pages named and reports only the rules asked for', async () => {
+    fresh()
+    const t = io()
+    expect(await main(['check', `${fixture.origin}/`, ...FAST, '--urls', '/blog', '--rules', 'links.broken', '--stdout', 'json', '--fail-on', 'none'], t.io)).toBe(EXIT.ok)
+    const json = JSON.parse(t.out()) as { summary: { pages: { crawled: number } }; findings: { rule_id: string; url: string }[] }
+    expect(json.summary.pages.crawled).toBe(1)
+    expect(json.findings.map((f) => [f.rule_id, new URL(f.url).pathname])).toEqual([['links.broken.internal', '/server-error']])
+    expect(readFileSync(join(cwd, '.webtrax', 'runs', runs()[0]!, 'report.md'), 'utf8')).toContain('- Scan: Targeted check of 1 URL, rules links.broken')
+    expect(await main(['check', `${fixture.origin}/`, '--scan', 'huge'], io().io)).toBe(EXIT.usage)
+    expect(await main(['check', `${fixture.origin}/`, '--urls', '/blog', '--rules', 'links.nothing'], io().io)).toBe(EXIT.usage)
+  })
+
+  it('release-gate fails on high findings unless told otherwise', async () => {
+    fresh()
+    expect(await main(['check', `${fixture.origin}/`, ...FAST, '--scan', 'release-gate', '--suites', 'links', '--quiet'], io().io)).toBe(EXIT.findings)
+  })
 })
 
 describe('webtrax.yml content.dictionary', () => {

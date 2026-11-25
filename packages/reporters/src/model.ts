@@ -4,7 +4,7 @@
  * on) and sorted most severe first. Built from the NDJSON records, so a
  * report can be rendered again later from `.webtrax/runs/<ts>/run.ndjson`.
  */
-import { BROWSER_PROFILES, healthScore, SEVERITIES, severityRank, type BrowserProfileId, type FindingRecord, type HealthScore, type PageRecord, type RuleMeta, type RunLine, type Severity, type SummaryRecord } from '@webtrax/protocol'
+import { BROWSER_PROFILES, healthScore, SCAN_PROFILE, SEVERITIES, severityRank, type BrowserProfileId, type FindingRecord, type HealthScore, type PageRecord, type RuleMeta, type RunLine, type Severity, type SummaryRecord } from '@webtrax/protocol'
 
 type RunRecord = Extract<RunLine, { type: 'run' }>
 
@@ -128,6 +128,14 @@ export function countsText(counts: Record<Severity, number>): string {
 }
 
 export const target = (r: Report) => r.run.spec.target.start_url
+
+/** The scan profile's name ("Quick check"), or null for a run whose settings were chosen by hand. */
+export const profileText = (r: Report): string | null => {
+  const p = r.run.spec.profile
+  if (!p || p === 'custom') return null
+  const urls = r.run.spec.target.urls?.length
+  return `${SCAN_PROFILE[p].label}${urls ? ` of ${plural(urls, 'URL')}` : ''}${r.run.spec.rules?.length ? `, rules ${r.run.spec.rules.join(', ')}` : ''}`
+}
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 

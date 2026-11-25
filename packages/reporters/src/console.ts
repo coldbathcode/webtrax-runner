@@ -1,6 +1,6 @@
 /** The terminal summary `webtrax check` prints. Plain text; colour only when asked (a TTY). */
 import type { Severity } from '@webtrax/protocol'
-import { caveatText, countsText, durationText, plural, scoreText, statusText, target, type Report } from './model'
+import { caveatText, countsText, durationText, plural, profileText, scoreText, statusText, target, type Report } from './model'
 
 const COLOURS: Record<Severity, string> = { critical: '\x1b[35m', high: '\x1b[31m', medium: '\x1b[33m', low: '\x1b[36m', info: '\x1b[2m' }
 
@@ -13,7 +13,7 @@ export function renderConsole(r: Report, o: ConsoleOptions = {}): string {
   const s = r.summary
   const lines = [
     `${bold('Webtrax')} ${target(r)}`,
-    `${statusText(r)} · ${plural(s.pages.crawled, 'page')} · ${plural(s.links.checked, 'link')} checked · ${durationText(r)}`,
+    `${statusText(r)} · ${profileText(r) ? `${profileText(r)} · ` : ''}${plural(s.pages.crawled, 'page')} · ${plural(s.links.checked, 'link')} checked · ${durationText(r)}`,
     `${countsText(r.counts)}`,
   ]
   const caveat = caveatText(s)

@@ -21,7 +21,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { classifyError, crawl, LocalSink, MemorySink, TeeSink, type CrawledPage, type CrawlResult } from '@webtrax/engine'
 import { createGuardedFetch } from '@webtrax/net-guard'
-import { atLeast, BOT_USER_AGENT, normaliseUrl, SEVERITIES, type JobSpecInput, type RunLine, type Severity } from '@webtrax/protocol'
+import { applyScanProfile, atLeast, BOT_USER_AGENT, normaliseUrl, SCAN_PROFILES, SEVERITIES, suitesOfRules, TARGETED_MAX_URLS, type JobSpecInput, type RunLine, type ScanProfileId, type Severity, type SuiteId } from '@webtrax/protocol'
 import { buildReport, renderHtml, renderMarkdown, type FindingGroup } from '@webtrax/reporters'
 import { brokenLinkReach, graphFromRun, impactOfChange, redirectDebt, type LinkGraph } from '@webtrax/link-graph'
 import { loadConfig } from './config'
@@ -75,14 +75,19 @@ export function createMcpServer(o: McpOptions): McpServer {
     return url
   }
 
-  function spec(url: string, overrides: Partial<{ maxPages: number; maxDepth: number; suites: readonly string[]; checkExternal: boolean; urls: string[] }> = {}): JobSpecInput {
+  function spec(url: string, overrides: Partial<{ maxPages: number; maxDepth: number; suites: readonly string[]; checkExternal: boolean; urls: string[]; profile: ScanProfileId; rules: string[] }> = {}): JobSpecInput {
     const local = isLocalHostname(new URL(url).hostname)
-    const maxPages = Math.min(overrides.maxPages ?? LOCAL_MAX_PAGES, local ? 5000 : PUBLIC_LIMITS.maxPages)
+    // A scan profile (C06.8) sets the suites, limits and devices; this server's own limits still cap it.
+    const profile = overrides.profile ?? (overrides.urls ? 'targeted' : undefined)
+    const part = profile ? applyScanProfile(profile, overrides.suites ? { only: overrides.suites as SuiteId[] } : profile === 'targeted' && overrides.rules ? { only: suitesOfRules(overrides.rules) } : {}) : null
+    const maxPages = Math.min(overrides.maxPages ?? part?.limits.max_pages ?? LOCAL_MAX_PAGES, local ? 5000 : PUBLIC_LIMITS.maxPages)
     return {
       spec_version: 1, job_id: `mcp-${Date.now().toString(36)}`, target: { start_url: url, ...(overrides.urls ? { urls: overrides.urls } : {}) },
       scope: { allow_private: local, check_external: overrides.checkExternal ?? true },
-      limits: { max_pages: maxPages, max_depth: overrides.maxDepth ?? 10, per_host_rps: local ? 20 : PUBLIC_LIMITS.rps, concurrency: 4, time_budget_s: 600 },
-      suites: Object.fromEntries((overrides.suites ?? DEFAULT_SUITE_IDS).map((s) => [s, { enabled: true }])),
+      limits: { max_pages: maxPages, max_depth: overrides.maxDepth ?? part?.limits.max_depth ?? 10, per_host_rps: local ? 20 : PUBLIC_LIMITS.rps, concurrency: 4, time_budget_s: 600 },
+      suites: part ? part.suites : Object.fromEntries((overrides.suites ?? DEFAULT_SUITE_IDS).map((s) => [s, { enabled: true }])),
+      ...(part ? { profile: part.profile, ...(part.browser ? { browser: part.browser } : {}) } : {}),
+      ...(overrides.rules?.length ? { rules: overrides.rules } : {}),
       labels: { source: 'mcp' },
     }
   }
@@ -159,19 +164,27 @@ export function createMcpServer(o: McpOptions): McpServer {
 
   server.registerTool('start_scan', {
     title: 'Start a scan',
-    description: 'Crawl a site in the background (links, security and SEO suites). Returns a run_id for get_scan, wait_for_scan and list_findings. Runs are saved in .webtrax/runs.',
-    inputSchema: { url: z.string(), max_pages: z.int().min(1).max(5000).optional() },
+    description: 'Crawl a site in the background (links, security and SEO suites, or a scan profile\'s). Returns a run_id for get_scan, wait_for_scan and list_findings. Runs are saved in .webtrax/runs. '
+      + 'profile: quick (50 pages, start-page checks), standard or deep (every suite, with Chromium), release-gate, or targeted. '
+      + 'To ask "is it fixed now?" after a change, pass urls (the pages you changed; implies targeted, no crawl) and rules (the rule ids or prefixes you fixed).',
+    inputSchema: {
+      url: z.string(), max_pages: z.int().min(1).max(5000).optional(), profile: z.enum(SCAN_PROFILES).optional(),
+      urls: z.array(z.string()).min(1).max(TARGETED_MAX_URLS).optional(), rules: z.array(z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$/)).min(1).max(200).optional(),
+    },
     annotations: { openWorldHint: true },
-  }, async ({ url, max_pages }) => {
+  }, async ({ url, max_pages, profile, urls, rules }) => {
     try {
       const target = admit(url)
+      if (profile === 'targeted' && !urls) throw new Error('a targeted scan needs urls: the pages to check')
+      if (urls && profile && profile !== 'targeted') throw new Error(`urls are for targeted scans, not ${profile}`)
+      const named = urls?.map((u) => admit(new URL(u, target).toString()))
       const startedAt = new Date()
       const sink = new LocalSink(o.root, startedAt)
       const id = sink.dir.split(/[\\/]/).at(-1)!
       const controller = new AbortController()
       const memory = new MemorySink()
       const run: ActiveRun = { id, target, startedAt: startedAt.toISOString(), pages: 0, controller, done: Promise.resolve(null as never) }
-      run.done = crawl(spec(target, max_pages ? { maxPages: max_pages } : {}), {
+      run.done = crawl(spec(target, { ...(max_pages ? { maxPages: max_pages } : {}), ...(profile ? { profile } : {}), ...(named ? { urls: named } : {}), ...(rules ? { rules } : {}) }), {
         sink: new TeeSink([sink, memory]), suites: SUITES, signal: controller.signal, runner: { name: '@webtrax/cli (mcp)', version: o.version },
         onPage: () => { run.pages += 1 },
       }).then(async (result) => {

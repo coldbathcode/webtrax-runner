@@ -11,6 +11,7 @@
  * readers.
  */
 import { z } from 'zod'
+import { CUSTOM_PROFILE, SCAN_PROFILES } from './profiles'
 import { BROWSER_PROFILES, CAPABILITIES, FETCH_ERRORS, PROTOCOL_VERSION, RUN_ERRORS, RUN_STATUSES, SEVERITIES, STOP_REASONS, SUITES } from './enums'
 
 /** Evidence is capped at 2 KB of JSON, as the database enforces (`finding_occurrences.evidence`). */
@@ -67,6 +68,18 @@ export const JobSpec = z.object({
     })
     .default({ max_pages: 300, max_depth: 10, concurrency: 4, per_host_rps: 2, time_budget_s: 600 }),
   suites: z.partialRecord(SuiteEnum, SuiteConfig).default({ links: { enabled: true, config: {} } }),
+  /**
+   * The scan profile the spec was built from (C06.8, `profiles.ts`), for
+   * display: the spec's own fields already say what runs. Absent or `custom`
+   * when everything was chosen by hand.
+   */
+  profile: z.enum([...SCAN_PROFILES, CUSTOM_PROFILE]).optional(),
+  /**
+   * Report only these rules, or the rules under these prefixes
+   * (`links.broken` covers `links.broken.internal`). For a targeted check
+   * ("is this fixed now?"). Absent: every rule of the suites that run.
+   */
+  rules: z.array(z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$/, 'a rule id or a prefix of one')).min(1).max(200).optional(),
   auth: z
     .object({
       headers: z.record(z.string(), SecretValue).optional(),

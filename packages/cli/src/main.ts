@@ -12,11 +12,11 @@ import { join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { crawl, LocalSink, MemorySink, TeeSink, type CrawlResult } from '@webtrax/engine'
 import { createGuardedFetch } from '@webtrax/net-guard'
-import { atLeast, BOT_USER_AGENT } from '@webtrax/protocol'
+import { atLeast, BOT_USER_AGENT, SCAN_PROFILE } from '@webtrax/protocol'
 import { buildReport, renderConsole, renderHtml, renderJson, renderJunit, renderMarkdown, renderSarif, shortId } from '@webtrax/reporters'
 import { serveMcp } from './mcp'
 import { listRuns, readRun as readRunAt, RULES, runsDir, SUITES } from './runs'
-import { buildSpec, CONFIG_FILE, ConfigError, configTemplate, loadConfig, normaliseTarget, parseFailOn, parseHeaders, parseProfiles, parseSuites, type FailOn } from './config'
+import { buildSpec, CONFIG_FILE, ConfigError, configTemplate, loadConfig, normaliseTarget, parseFailOn, parseHeaders, parseList, parseProfiles, parseScan, parseSuites, type FailOn } from './config'
 
 export const VERSION = typeof __WEBTRAX_VERSION__ === 'string' ? __WEBTRAX_VERSION__ : '0.0.0-dev'
 declare const __WEBTRAX_VERSION__: string | undefined
@@ -46,6 +46,17 @@ Usage
 
 Options for check
   --config <file>        config file (default: ./webtrax.yml if present)
+  --scan <profile>       a scan profile; flags and webtrax.yml win over it:
+                           quick         50 pages; security, SEO and AI readiness on the start page;
+                                         the start page's speed as a phone
+                           standard      every suite; the browser suites on the top pages (desktop)
+                                         and the start page (phone)
+                           deep          every suite; accessibility on 200 pages, speed on 25, both devices
+                           release-gate  every suite on 100 pages, the browser suites on 5; --fail-on high
+                           targeted      only the --urls given, without crawling (set by --urls)
+  --urls <list>          check only these pages (paths or URLs, comma-separated, up to 200): their
+                         findings and their links. Implies --scan targeted
+  --rules <list>         report only these rules, or rules under a prefix: links.broken,seo.title
   --max-pages <n>        pages to crawl (default 300)
   --max-depth <n>        link depth from the start page (default 10)
   --suites <list>        links,security,seo,content,ai_readiness,a11y,performance
@@ -114,12 +125,15 @@ async function check(args: string[], io: Io): Promise<number> {
       'fail-on': { type: 'string' }, reports: { type: 'string' }, out: { type: 'string' }, stdout: { type: 'string' }, quiet: { type: 'boolean' },
       'allow-private': { type: 'boolean' }, 'ignore-robots': { type: 'boolean' }, 'no-external': { type: 'boolean' }, rps: { type: 'string' },
       concurrency: { type: 'string' }, 'time-budget': { type: 'string' }, ignore: { type: 'string' }, browser: { type: 'boolean' }, profile: { type: 'string' },
-      header: { type: 'string', multiple: true },
+      header: { type: 'string', multiple: true }, scan: { type: 'string' }, urls: { type: 'string' }, rules: { type: 'string' },
     },
   })
   if (positionals.length > 1) throw new ConfigError('check takes one URL')
   const { config } = loadConfig(io.cwd, values.config)
-  const failOn: FailOn = values['fail-on'] ? parseFailOn(values['fail-on']) : (config.fail_on ?? 'high')
+  const scan = values.scan ? parseScan(values.scan) : config.scan
+  const failOn: FailOn = values['fail-on'] ? parseFailOn(values['fail-on']) : (config.fail_on ?? (scan ? SCAN_PROFILE[scan].fail_on : undefined) ?? 'high')
+  const rules = values.rules ? parseList(values.rules) : undefined
+  for (const r of rules ?? []) if (!RULES.some((x) => x.id === r || x.id.startsWith(`${r}.`))) throw new ConfigError(`--rules: no rule is ${r} or starts with ${r}. (see webtrax explain or the rules reference)`)
   const reports = values.reports ? values.reports.split(',').map((r) => r.trim()).filter(Boolean) : (config.reports ?? ['html', 'md'])
   for (const r of reports) if (!['html', 'md', 'json', 'sarif', 'junit'].includes(r)) throw new ConfigError('--reports takes html, md, json, sarif and junit')
   const ignore = new Set(values.ignore ? values.ignore.split(',').map((r) => r.trim()).filter(Boolean) : (config.ignore ?? []))
@@ -143,6 +157,9 @@ async function check(args: string[], io: Io): Promise<number> {
     ignoreRobots: values['ignore-robots'] ?? false,
     noExternal: values['no-external'] ?? false,
     ...(values.header?.length ? { headers: parseHeaders(values.header) } : {}),
+    ...(values.scan ? { scan: parseScan(values.scan) } : {}),
+    ...(values.urls ? { urls: parseList(values.urls) } : {}),
+    ...(rules ? { rules } : {}),
   }, jobId)
 
   const local = new LocalSink(io.cwd, startedAt, values.out ? join(resolve(io.cwd, values.out), 'runs') : undefined)
