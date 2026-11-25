@@ -20,12 +20,30 @@ importers:
       '@webtrax/link-graph':
         specifier: workspace:*
         version: link:packages/link-graph
+      '@webtrax/net-guard':
+        specifier: workspace:*
+        version: link:packages/net-guard
       '@webtrax/protocol':
         specifier: workspace:*
         version: link:packages/protocol
+      '@webtrax/reporters':
+        specifier: workspace:*
+        version: link:packages/reporters
+      '@webtrax/suite-a11y':
+        specifier: workspace:*
+        version: link:packages/suite-a11y
+      '@webtrax/suite-ai':
+        specifier: workspace:*
+        version: link:packages/suite-ai
+      '@webtrax/suite-content':
+        specifier: workspace:*
+        version: link:packages/suite-content
       '@webtrax/suite-links':
         specifier: workspace:*
         version: link:packages/suite-links
+      '@webtrax/suite-performance':
+        specifier: workspace:*
+        version: link:packages/suite-performance
       '@webtrax/suite-security':
         specifier: workspace:*
         version: link:packages/suite-security
