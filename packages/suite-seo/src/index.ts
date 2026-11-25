@@ -7,8 +7,13 @@
  * meta descriptions, several or cross-site canonicals, social preview tags,
  * skipped heading levels, nofollow on internal links, hreflang codes and
  * return links, and sitemap URLs that robots.txt blocks for search engines.
+ *
+ * C06.3 (second slice): canonicals that name a noindex page, sitemap URLs
+ * whose canonical is another URL, the bare domain and www. both answering as
+ * the site, pages more than four clicks from the start page, descriptions
+ * search results cut off, and social preview images that do not load.
  */
-import { parseRobots, type CheckSuite, type SuiteCtx } from '@webtrax/engine'
+import { linkProblem, parseRobots, registrableDomain, type CheckSuite, type SuiteCtx } from '@webtrax/engine'
 import { normaliseUrl, type RuleMeta } from '@webtrax/protocol'
 
 const rule = (id: string, severity: RuleMeta['severity'], title: string, why: string, fix: string): RuleMeta => ({
@@ -16,6 +21,11 @@ const rule = (id: string, severity: RuleMeta['severity'], title: string, why: st
 })
 
 export const TITLE_MAX = 70
+export const DESCRIPTION_MAX = 160
+/** Clicks from the start page beyond which a page is deep. */
+export const MAX_CLICKS = 4
+/** Distinct social preview images checked per run. */
+export const OG_IMAGE_CHECKS = 20
 
 export const SEO_RULES = [
   rule('seo.title.missing', 'medium', 'Page has no title', 'The title is the headline in search results and browser tabs; without one, search engines make one up.', 'Add a unique, descriptive <title> to the page.'),
@@ -33,6 +43,12 @@ export const SEO_RULES = [
   rule('seo.headings.skipped_level', 'low', 'Heading levels skip a step', 'A jump such as h2 to h4 breaks the outline that search engines and screen readers use to understand the page.', 'Use heading levels in order (h2, then h3), and style them with CSS rather than picking a level for its size.'),
   rule('seo.links.nofollow_internal', 'low', 'Internal links marked nofollow', 'rel="nofollow" on links to your own pages tells search engines not to follow them, so those pages get less weight or are not found.', 'Remove rel="nofollow" from links to your own site; use noindex on pages that should stay out of search.'),
   rule('seo.hreflang.invalid', 'medium', 'Language alternates (hreflang) are wrong', 'Search engines ignore hreflang annotations with invalid codes or without return links, so people may land on the wrong language version.', 'Use codes such as "en", "en-GB" or "x-default", include the page itself, and make each alternate link back to this page.'),
+  rule('seo.canonical.to_noindex', 'high', 'Canonical URL names a page that asks not to be indexed', 'The page says another URL is the one to index, and that URL says not to index it: search engines may drop both from results.', 'Point the canonical at an indexable page (usually this page itself), or remove noindex from the page it names.'),
+  rule('seo.canonical.sitemap_mismatch', 'medium', 'Sitemap lists a URL whose canonical is another URL', 'The sitemap asks search engines to index this URL while the page says a different one is the real one, so they get two answers and may pick neither.', 'List the canonical URL in the sitemap instead, or make the page its own canonical.'),
+  rule('seo.host.not_canonicalised', 'medium', 'The site answers on both the bare domain and www.', 'example.com and www.example.com both serve the site without one redirecting to the other or naming it as canonical, so search engines see two copies of every page and split their ranking.', 'Redirect one host to the other with a 301 (and keep using the one you chose in links and the sitemap), or add a canonical on every page that names the chosen host.'),
+  rule('seo.links.deep', 'low', 'Page is more than four clicks from the start page', 'Pages that take many clicks to reach are crawled less often, rank lower and are harder for people to find.', 'Link to the page from a higher level (a section index, the menu, related pages), so it is at most four clicks from the start page.'),
+  rule('seo.meta_description.too_long', 'info', `Meta description is longer than ${DESCRIPTION_MAX} characters`, 'Search results cut long descriptions off, often before the sentence that would make someone click. Search engines often write their own snippet anyway, so this is advice, not counted in the score.', `Keep the description under about ${DESCRIPTION_MAX} characters, with what the page offers first.`),
+  rule('seo.social.og_image_broken', 'medium', 'Social preview image does not load', 'Links to the page shared in chat, social networks and AI assistants show a blank or broken preview instead of the image.', 'Make og:image an absolute https:// URL of an image that loads (at least 1200 x 630 pixels is the common size), or fix the image at that address.'),
   rule('seo.robots.blocks_sitemap_url', 'high', 'Sitemap lists a page that robots.txt blocks', 'You ask search engines to index the page in the sitemap but forbid them to crawl it in robots.txt, so it cannot be indexed properly.', 'Remove the page from the sitemap, or change the Disallow rule in robots.txt that matches it.'),
 ] satisfies RuleMeta[]
 
@@ -55,11 +71,11 @@ export function previewOrLocalHost(host: string): boolean {
   return h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h === '::1' || /^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)
     || /(^|\.)(vercel\.app|netlify\.app|pages\.dev|onrender\.com|fly\.dev|amplifyapp\.com|web\.app|firebaseapp\.com|ngrok\.io|ngrok-free\.app)$/.test(h)
 }
-interface Seen { descriptions: Map<string, string[]>; alternates: Map<string, { lang: string; href: string }[]> }
+interface Seen { descriptions: Map<string, string[]>; alternates: Map<string, { lang: string; href: string }[]>; noindex: Set<string>; ogImages: Map<string, string[]> }
 const seen = new WeakMap<SuiteCtx, Seen>()
 const stateFor = (ctx: SuiteCtx): Seen => {
   let s = seen.get(ctx)
-  if (!s) seen.set(ctx, (s = { descriptions: new Map(), alternates: new Map() }))
+  if (!s) seen.set(ctx, (s = { descriptions: new Map(), alternates: new Map(), noindex: new Set(), ogImages: new Map() }))
   return s
 }
 
@@ -88,6 +104,8 @@ export const seoSuite: CheckSuite = {
     const state = stateFor(ctx)
     const own = normaliseUrl(page.outcome.finalUrl || url) ?? url
     const description = $('meta[name="description" i]').attr('content')?.trim()
+    if (noindex) state.noindex.add(own)
+    if (description && description.length > DESCRIPTION_MAX) await ctx.emit({ rule_id: 'seo.meta_description.too_long', url, evidence: { description: description.slice(0, 300), length: description.length } })
     if (description) {
       const key = description.toLowerCase().replace(/\s+/g, ' ')
       const list = state.descriptions.get(key) ?? []
@@ -110,6 +128,13 @@ export const seoSuite: CheckSuite = {
     else if (canonicals.length === 1 && hostKey(canonicals[0]!) !== hostKey(url) && !previewOrLocalHost(new URL(url).hostname)) await ctx.emit({ rule_id: 'seo.canonical.cross_domain', url, evidence: { canonical: canonicals[0] } })
 
     const og = ['og:title', 'og:description', 'og:image'].filter((p) => !$(`meta[property="${p}" i]`).attr('content')?.trim())
+    const image = $('meta[property="og:image" i]').attr('content')?.trim()
+    const imageUrl = image ? resolve(image) : null
+    if (imageUrl && /^https?:/i.test(imageUrl) && !noindex) {
+      const list = state.ogImages.get(imageUrl) ?? []
+      if (!list.includes(own)) list.push(own)
+      state.ogImages.set(imageUrl, list)
+    }
     // A page kept out of search is rarely shared either (an app's sign-in page).
     if (og.length === 3 && !noindex) await ctx.emit({ rule_id: 'seo.social.og_missing', url, evidence: { missing: og } })
 
@@ -163,6 +188,80 @@ export const seoSuite: CheckSuite = {
       const urls = [...new Set(list.map((u) => canonicalOf.get(u) ?? u))].sort()
       if (urls.length < 2) continue
       for (const url of urls) await ctx.emit({ rule_id: 'seo.meta_description.duplicate', url, evidence_key: description.slice(0, 200), evidence: { description: description.slice(0, 300), pages: urls.length, others: urls.filter((u) => u !== url).slice(0, 5) } })
+    }
+
+    // Canonicals that name a noindex page, and sitemap URLs whose page names another canonical.
+    for (const [from, to] of canonicalOf) {
+      if (to === from) continue
+      const target = site.pages.get(to)
+      const final = target ? (normaliseUrl(target.final_url) ?? target.final_url) : to
+      if (state.noindex.has(to) || state.noindex.has(final)) await ctx.emit({ rule_id: 'seo.canonical.to_noindex', url: from, evidence: { canonical: to } })
+    }
+    const inSitemap = new Map<string, string>()
+    for (const e of site.edges) if (e.kind === 'sitemap' && !inSitemap.has(e.to)) inSitemap.set(e.to, e.from)
+    for (const [listed, sitemap] of inSitemap) {
+      const page = site.pages.get(listed)
+      const own = page ? (normaliseUrl(page.final_url) ?? page.final_url) : listed
+      const canonical = canonicalOf.get(own)
+      // A listed URL that redirects is links.sitemap.stale's finding; this is a page that answers and points elsewhere.
+      if (page?.status === 200 && own === listed && canonical && canonical !== own) await ctx.emit({ rule_id: 'seo.canonical.sitemap_mismatch', url: listed, evidence: { canonical, sitemap } })
+    }
+
+    // Click depth: the fewest links from the start page, over the pages the crawl fetched.
+    const finalOf = (u: string) => { const p = site.pages.get(u); return p ? (normaliseUrl(p.final_url) ?? p.final_url) : u }
+    const html = new Set([...site.pages.values()].filter((p) => p.status === 200 && p.title !== undefined).map((p) => normaliseUrl(p.final_url) ?? p.final_url))
+    const out = new Map<string, string[]>()
+    for (const e of site.edges) if (e.kind === 'link') (out.get(e.from) ?? out.set(e.from, []).get(e.from)!).push(e.to)
+    const start = finalOf(site.startUrl)
+    const parent = new Map<string, string | null>([[start, null]])
+    const clicks = new Map<string, number>([[start, 0]])
+    for (const queue = [start], i = { n: 0 }; i.n < queue.length; i.n++) {
+      const at = queue[i.n]!
+      for (const raw of out.get(at) ?? []) {
+        const next = finalOf(raw)
+        if (clicks.has(next) || !html.has(next) || !next.startsWith(`${site.origin}/`)) continue
+        clicks.set(next, clicks.get(at)! + 1)
+        parent.set(next, at)
+        queue.push(next)
+      }
+    }
+    const path = (u: string) => (u.startsWith(`${site.origin}/`) ? u.slice(site.origin.length) : u)
+    // Only from a crawl that saw the whole site: a page limit can leave out the shorter route (sitemap pages use the
+    // budget first), so a partial crawl's click counts are only upper bounds.
+    for (const [url, n] of site.incomplete ? [] : [...clicks].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+      if (n <= MAX_CLICKS) continue
+      const route: string[] = []
+      for (let at: string | null | undefined = url; at; at = parent.get(at)) route.unshift(path(at))
+      await ctx.emit({ rule_id: 'seo.links.deep', url, evidence: { clicks: n, route: route.length > 8 ? [...route.slice(0, 3), '…', ...route.slice(-4)] : route } })
+    }
+
+    // Social preview images, each checked once.
+    for (const [image, pages] of [...state.ogImages].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(0, OG_IMAGE_CHECKS)) {
+      const known = site.links.get(normaliseUrl(image) ?? image)
+      const outcome = known ?? (await ctx.request(image))
+      const problem = linkProblem(outcome)
+      if (!problem) continue
+      const sorted = [...pages].sort()
+      await ctx.emit({
+        rule_id: 'seo.social.og_image_broken', url: image, source_url: sorted[0]!,
+        evidence: { ...(outcome.status !== null ? { status: outcome.status } : {}), ...(outcome.error ? { error: outcome.error } : {}), pages: sorted.length, examples: sorted.slice(0, 5).map(path) },
+      })
+    }
+
+    // The bare domain and www. both answering as the site (one request to the other host's home page).
+    const host = new URL(site.origin).hostname
+    const domain = registrableDomain(host)
+    if (domain && !previewOrLocalHost(host) && (host === domain || host === `www.${domain}`)) {
+      const other = `${new URL(site.origin).protocol}//${host === domain ? `www.${domain}` : domain}/`
+      const o = await ctx.request(other)
+      // Fine when it redirects (any 3xx), does not answer, or names a canonical on this host.
+      if (o.status === 200 && !o.error) {
+        const tag = o.body ? /<link\b[^>]*\brel=["']?canonical\b[^>]*>/i.exec(o.body)?.[0] : undefined
+        const href = tag ? /\bhref=["']?([^"'\s>]+)/i.exec(tag)?.[1] : undefined
+        let canonical: URL | null = null
+        try { canonical = href ? new URL(href, other) : null } catch { canonical = null }
+        if (canonical?.hostname !== host) await ctx.emit({ rule_id: 'seo.host.not_canonicalised', url: other, evidence: { status: 200, site: `${site.origin}/`, ...(canonical ? { canonical: canonical.href } : {}) } })
+      }
     }
 
     // hreflang return links, between crawled pages only.

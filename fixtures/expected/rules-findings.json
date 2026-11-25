@@ -257,6 +257,18 @@
       "fingerprint": "e3219590342ebaa22d47abca1ac852abff75d6412b275c5ad471a15cd8890d86"
     },
     {
+      "rule_id": "seo.canonical.sitemap_mismatch",
+      "severity": "medium",
+      "url": "https://shop.example/defects/seo.canonical.sitemap_mismatch",
+      "fingerprint": "ba6c51257ead0bd1c84ec659b6c4450d03df58827153672164778007685202f9"
+    },
+    {
+      "rule_id": "seo.canonical.to_noindex",
+      "severity": "high",
+      "url": "https://shop.example/defects/seo.canonical.to_noindex",
+      "fingerprint": "5a6d1ac2d2102240f39865ef9f28d7c68ed7c2677fa613ad5354f98499a1f955"
+    },
+    {
       "rule_id": "seo.h1.missing",
       "severity": "low",
       "url": "https://shop.example/defects/seo.h1.missing",
@@ -287,6 +299,12 @@
       "fingerprint": "24081462838c2471b55305a5491734771b8e81a0d9c94807327ec5f090ec807e"
     },
     {
+      "rule_id": "seo.links.deep",
+      "severity": "low",
+      "url": "https://shop.example/defects/seo.links.deep/4",
+      "fingerprint": "d18957cac071b4d410a638e57f186634983a6d938e0db50ca0eca7e608b75221"
+    },
+    {
       "rule_id": "seo.links.nofollow_internal",
       "severity": "low",
       "url": "https://shop.example/defects/seo.links.nofollow_internal",
@@ -311,6 +329,18 @@
       "fingerprint": "a1d399ed7db290b750a5a351c33272b5eb7d8ce86d07ac7ad79d6e11c1e30fbd"
     },
     {
+      "rule_id": "seo.meta_description.too_long",
+      "severity": "info",
+      "url": "https://shop.example/defects/seo.meta_description.too_long",
+      "fingerprint": "d2d5e3f908f8175f9f29c90b4e0f71f0e68d9671e382cc7954eaaa689f4f8e7c"
+    },
+    {
+      "rule_id": "seo.noindex",
+      "severity": "medium",
+      "url": "https://shop.example/defects/seo.canonical.to_noindex/hidden",
+      "fingerprint": "a8e8527ec7cfdea475917781f315e0beec689163a0727231fbe5c6efc357a28a"
+    },
+    {
       "rule_id": "seo.noindex",
       "severity": "medium",
       "url": "https://shop.example/defects/seo.noindex",
@@ -321,6 +351,13 @@
       "severity": "high",
       "url": "https://shop.example/defects/seo.robots.blocks_sitemap_url",
       "fingerprint": "f225209dd143d9bc282edf497654f5e9ce50d665a2f3fabec486389093ffbd63"
+    },
+    {
+      "rule_id": "seo.social.og_image_broken",
+      "severity": "medium",
+      "url": "https://shop.example/defects/seo.social.og_image_broken/card.png",
+      "source_url": "https://shop.example/defects/seo.social.og_image_broken",
+      "fingerprint": "b94b2b5e6cbf80aa6699d9ae5b3f3bb87d67e56b5caed5e1d2fecf1a31c034d8"
     },
     {
       "rule_id": "seo.social.og_missing",
@@ -463,6 +500,12 @@
       "severity": "high",
       "url": "http://short.example/",
       "fingerprint": "f23d2c15aa4b4709da4426bb5d89a0032aaa059cc55bb1bde4218d91bd68f823"
+    },
+    {
+      "rule_id": "seo.host.not_canonicalised",
+      "severity": "medium",
+      "url": "https://www.short.example/",
+      "fingerprint": "899c2f1dccb669f885fcdede6fab8823d65a96480cfc37380a45ce50b440f96d"
     }
   ],
   "clean": [

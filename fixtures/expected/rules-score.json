@@ -1,9 +1,9 @@
 {
   "defects": {
     "version": 2,
-    "score": 65,
+    "score": 68,
     "grade": "D",
-    "pages": 46,
+    "pages": 57,
     "suites": [
       "links",
       "security",
@@ -12,11 +12,11 @@
       "ai_readiness"
     ],
     "by_suite": {
-      "links": 60.8,
-      "security": 55,
-      "seo": 69,
-      "content": 80.8,
-      "ai_readiness": 94.7
+      "links": 66.9,
+      "security": 61.7,
+      "seo": 62.6,
+      "content": 83.5,
+      "ai_readiness": 95.7
     }
   },
   "plain": {
@@ -37,16 +37,18 @@
   },
   "short": {
     "version": 2,
-    "score": 74,
+    "score": 77,
     "grade": "C",
     "pages": 1,
     "suites": [
       "links",
-      "security"
+      "security",
+      "seo"
     ],
     "by_suite": {
       "links": 100,
-      "security": 41.7
+      "security": 41.7,
+      "seo": 84.6
     }
   },
   "clean": {

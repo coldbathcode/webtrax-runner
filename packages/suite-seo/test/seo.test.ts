@@ -4,17 +4,21 @@ import { JobSpec, type PageRecord } from '@webtrax/protocol'
 import { previewOrLocalHost, seoSuite } from '../src'
 
 const O = 'https://site.example'
-function setup(texts: Record<string, string> = {}) {
+type Answer = { status: number | null; error?: 'dns_error' | 'connection_error'; body?: string }
+function setup(texts: Record<string, string> = {}, answers: Record<string, Answer> = {}) {
   const emitted: FindingInput[] = []
+  const asked: string[] = []
   const ctx: SuiteCtx = {
     spec: JobSpec.parse({ spec_version: 1, job_id: 'x', target: { start_url: `${O}/` } }), config: {}, origin: O, startUrl: `${O}/`, requestedStartUrl: `${O}/`,
-    emit: async (f) => { emitted.push(f) }, metric: async () => {}, request: async () => { throw new Error('no fetching') }, requestAs: async () => { throw new Error('no fetching') }, dns: async () => { throw new Error('no lookups') }, registration: async () => { throw new Error('no lookups') },
+    emit: async (f) => { emitted.push(f) }, metric: async () => {},
+    // Anything not answered here does not resolve, as www. of a test domain would not.
+    request: async (url) => { asked.push(url); const a = answers[url] ?? { status: null, error: 'dns_error' as const }; return { url, finalUrl: url, chain: [], timing: { ttfb: 1, total: 1 }, requests: 1, ...a } }, requestAs: async () => { throw new Error('no fetching') }, dns: async () => { throw new Error('no lookups') }, registration: async () => { throw new Error('no lookups') },
     text: async (url) => {
       if (!(url in texts)) throw new Error(`no fetching ${url}`)
       return { url, finalUrl: url, status: 200, chain: [], body: texts[url] ?? '', contentType: 'text/plain', timing: { ttfb: 1, total: 1 }, requests: 1 }
     },
   }
-  return { ctx, emitted, ids: () => emitted.map((f) => f.rule_id).sort() }
+  return { ctx, emitted, asked, ids: () => emitted.map((f) => f.rule_id).sort() }
 }
 const page = (html: string, headers: Record<string, string> = {}, status = 200, path = '/p'): CrawledPage => ({
   url: `${O}${path}`, depth: 0, doc: parseHtml(html, `${O}${path}`), outcome: { url: `${O}${path}`, finalUrl: `${O}${path}`, status, chain: [], headers, timing: { ttfb: 1, total: 1 }, requests: 1 },
@@ -136,5 +140,78 @@ describe('seo suite', () => {
     await seoSuite.onSite!(s.ctx, emptySite(edges))
     // Googlebot follows its own group only, so /private/ is allowed for it.
     expect(s.emitted.map((f) => [f.rule_id, f.url])).toEqual([['seo.robots.blocks_sitemap_url', `${O}/drafts/x`]])
+  })
+
+  describe('second slice (C06.3)', () => {
+    type Edge = { from: string; to: string; text: string; kind: 'link' | 'sitemap' | 'canonical' }
+    const rec = (path: string, extra: Partial<PageRecord> = {}): [string, PageRecord] => [`${O}${path}`, { type: 'page', url: `${O}${path}`, final_url: `${O}${path}`, status: 200, redirect_chain: [], depth: 0, title: path, ...extra } as PageRecord]
+    const siteOf = (paths: string[], edges: Edge[], extra: Record<string, Partial<PageRecord>> = {}) => ({ ...emptySite(edges), pages: new Map(paths.map((p) => rec(p, extra[p]))) })
+    const link = (from: string, to: string): Edge => ({ from: `${O}${from}`, to: `${O}${to}`, text: '', kind: 'link' })
+
+    it('a description longer than 160 characters, and not a shorter one', async () => {
+      const s = setup()
+      await seoSuite.onPage!(s.ctx, page(GOOD.replace('Plans and prices', 'x'.repeat(161)), {}, 200, '/long'))
+      await seoSuite.onPage!(s.ctx, page(GOOD.replace('Plans and prices', 'x'.repeat(160)), {}, 200, '/ok'))
+      expect(s.emitted.filter((f) => f.rule_id === 'seo.meta_description.too_long').map((f) => [f.url, f.evidence!.length])).toEqual([[`${O}/long`, 161]])
+    })
+
+    it('a canonical that names a noindex page; a self-canonical noindex page is not one', async () => {
+      const s = setup()
+      await seoSuite.onPage!(s.ctx, page(GOOD.replace('<head>', '<head><meta name="robots" content="noindex">'), {}, 200, '/hidden'))
+      const edges: Edge[] = [{ from: `${O}/a`, to: `${O}/hidden`, text: '', kind: 'canonical' }, { from: `${O}/hidden`, to: `${O}/hidden`, text: '', kind: 'canonical' }]
+      await seoSuite.onSite!(s.ctx, siteOf(['/', '/a', '/hidden'], edges))
+      expect(s.emitted.filter((f) => f.rule_id === 'seo.canonical.to_noindex').map((f) => [f.url, f.evidence!.canonical])).toEqual([[`${O}/a`, `${O}/hidden`]])
+    })
+
+    it('a sitemap URL whose page names another canonical; not one that redirects, nor one that is its own', async () => {
+      const s = setup({ [`${O}/robots.txt`]: 'User-agent: *\nDisallow:\n' })
+      const edges: Edge[] = [
+        ...['/a', '/b', '/moved'].map((p): Edge => ({ from: `${O}/sitemap.xml`, to: `${O}${p}`, text: '', kind: 'sitemap' })),
+        { from: `${O}/a`, to: `${O}/b`, text: '', kind: 'canonical' },
+        { from: `${O}/b`, to: `${O}/b`, text: '', kind: 'canonical' },
+        { from: `${O}/new`, to: `${O}/b`, text: '', kind: 'canonical' },
+      ]
+      await seoSuite.onSite!(s.ctx, siteOf(['/', '/a', '/b', '/moved'], edges, { '/moved': { final_url: `${O}/new` } }))
+      expect(s.emitted.filter((f) => f.rule_id === 'seo.canonical.sitemap_mismatch').map((f) => [f.url, f.evidence!.canonical])).toEqual([[`${O}/a`, `${O}/b`]])
+    })
+
+    it('pages more than four clicks away, by the shortest route, with the route', async () => {
+      const s = setup()
+      const chain = ['/', '/1', '/2', '/3', '/4', '/5', '/6']
+      const edges = [...chain.slice(1).map((p, i) => link(chain[i]!, p)), link('/', '/shortcut'), link('/shortcut', '/6'), link('/5', '/not-html')]
+      await seoSuite.onSite!(s.ctx, siteOf([...chain, '/shortcut', '/not-html'], edges, { '/not-html': { title: undefined } }))
+      // /6 is two clicks away through /shortcut; /5 is five; a file that is not a page is never reported.
+      expect(s.emitted.filter((f) => f.rule_id === 'seo.links.deep').map((f) => [f.url, f.evidence!.clicks, f.evidence!.route])).toEqual([[`${O}/5`, 5, ['/', '/1', '/2', '/3', '/4', '/5']]])
+      // A crawl stopped by a limit may have missed the shorter route: it says nothing.
+      const partial = setup()
+      await seoSuite.onSite!(partial.ctx, { ...siteOf([...chain, '/shortcut', '/not-html'], edges, { '/not-html': { title: undefined } }), incomplete: 'page_limit' as const })
+      expect(partial.emitted.filter((f) => f.rule_id === 'seo.links.deep')).toEqual([])
+    })
+
+    it('a social preview image that does not load, once for all the pages that use it', async () => {
+      const img = (src: string) => GOOD.replace('content="/og.png"', `content="${src}"`)
+      const s = setup({}, { [`${O}/og.png`]: { status: 200 }, [`${O}/gone.png`]: { status: 404 }, 'https://cdn.example/card.png': { status: 403 } })
+      await seoSuite.onPage!(s.ctx, page(img('/gone.png'), {}, 200, '/a'))
+      await seoSuite.onPage!(s.ctx, page(img('/gone.png'), {}, 200, '/b'))
+      await seoSuite.onPage!(s.ctx, page(GOOD, {}, 200, '/c'))
+      await seoSuite.onPage!(s.ctx, page(img('https://cdn.example/card.png'), {}, 200, '/d'))
+      await seoSuite.onSite!(s.ctx, emptySite())
+      // A 403 from a CDN that turns checkers away is not broken (V2-COR-03).
+      expect(s.emitted.filter((f) => f.rule_id === 'seo.social.og_image_broken').map((f) => [f.url, f.source_url, f.evidence!.pages])).toEqual([[`${O}/gone.png`, `${O}/a`, 2]])
+      expect(s.asked.filter((u) => u.endsWith('.png'))).toHaveLength(3)
+    })
+
+    it('www. and the bare domain both answering, unless one redirects or names the other as canonical', async () => {
+      const run = async (answer: Answer) => {
+        const s = setup({}, { 'https://www.site.example/': answer })
+        await seoSuite.onSite!(s.ctx, emptySite())
+        return s.emitted.filter((f) => f.rule_id === 'seo.host.not_canonicalised').map((f) => f.url)
+      }
+      expect(await run({ status: 200, body: '<html><head><title>Home</title></head></html>' })).toEqual(['https://www.site.example/'])
+      expect(await run({ status: 200, body: '<link rel="canonical" href="https://www.site.example/">' })).toEqual(['https://www.site.example/'])
+      expect(await run({ status: 200, body: '<link rel="canonical" href="https://site.example/">' })).toEqual([])
+      expect(await run({ status: 301 })).toEqual([])
+      expect(await run({ status: null, error: 'dns_error' })).toEqual([])
+    })
   })
 })

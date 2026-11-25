@@ -49,7 +49,7 @@ const notHere = (rule: string) => Object.keys(NOT_HERE).some((k) => k === rule |
 const RUNS: Record<string, { start: string; suites: SuiteId[] }> = {
   defects: { start: 'https://shop.example/', suites: ['links', 'security', 'seo', 'content', 'ai_readiness'] },
   plain: { start: 'http://plain.example/defects/security.https.missing', suites: ['links', 'security', 'ai_readiness'] },
-  short: { start: 'https://short.example/old-home', suites: ['links', 'security'] },
+  short: { start: 'https://short.example/old-home', suites: ['links', 'security', 'seo'] },
   clean: { start: 'https://clean.example/', suites: ['links', 'security', 'seo', 'content', 'ai_readiness'] },
 }
 

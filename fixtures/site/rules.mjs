@@ -13,7 +13,8 @@
 //                                apple-app-site-association carry the site-wide defects
 //   http://shop.example/…        the same site over plain HTTP: answers instead of redirecting
 //   http://plain.example/…       a site with no HTTPS at all (HTTPS, password and header rules)
-//   https://short.example/…      a site whose start URL redirects and whose HSTS is short
+//   https://short.example/…      a site whose start URL redirects and whose HSTS is short; www.short.example
+//                                answers as the site too, www.clean.example redirects to clean.example
 //   https://clean.example/       the clean twin: /clean/<suite> pages that do everything right
 //   https://partner.example/…    another site: /ok, /copy, /missing (404), /slow, /pixel.png
 //   https://members.example/     asks for a sign-in (401) whoever asks
@@ -64,7 +65,8 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 function page(o) {
   const title = o.title === undefined ? o.h1 : o.title
   const description = o.description === undefined ? `What ${o.h1} shows, in a sentence of its own.` : o.description
-  const og = o.og === false ? '' : `<meta property="og:title" content="${esc(title ?? o.h1)}"><meta property="og:description" content="${esc(description ?? o.h1)}"><meta property="og:image" content="/card.png">`
+  const image = o.og === 'broken' ? `/defects/seo.social.og_image_broken/card.png` : '/card.png'
+  const og = o.og === false ? '' : `<meta property="og:title" content="${esc(title ?? o.h1)}"><meta property="og:description" content="${esc(description ?? o.h1)}"><meta property="og:image" content="${image}">`
   const head = [
     '<meta charset="utf-8">',
     title === null ? '' : `<title>${esc(title)}</title>`,
@@ -125,6 +127,11 @@ export const DEFECTS = {
   'seo.links.nofollow_internal': { extra: '<p><a href="/" rel="nofollow">Home</a></p>' },
   'seo.hreflang.invalid': { head: `<link rel="alternate" hreflang="english" href="${SHOP}/defects/seo.hreflang.invalid">` },
   'seo.robots.blocks_sitemap_url': {},
+  'seo.meta_description.too_long': { description: 'A description that keeps going well past the point where any search result would stop showing it, because it tries to say everything about the page in one breath instead of one sentence.' },
+  'seo.canonical.to_noindex': { head: `<link rel="canonical" href="${SHOP}/defects/seo.canonical.to_noindex/hidden">` },
+  'seo.canonical.sitemap_mismatch': { head: `<link rel="canonical" href="${SHOP}/defects/seo.canonical.sitemap_mismatch/real">` },
+  'seo.links.deep': { extra: '<p><a href="/defects/seo.links.deep/1">One level down</a></p>' },
+  'seo.social.og_image_broken': { head: '<meta property="og:image:alt" content="A card">', og: 'broken' },
   // content
   'content.placeholder': { extra: '<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>' },
   'content.dictionary': { extra: '<p>Upgrade from Acme Classic today.</p>' },
@@ -143,10 +150,16 @@ const SUB_PAGES = {
   '/defects/content.duplicate/copy': { h1: 'The copy of a page', main: `<p>${prose('content.duplicate.shared', 100)}</p>` },
   '/defects/links.redirect.chain/end': { h1: 'Where the moved page ended up' },
   '/defects/links.redirect.to_http/target': { h1: 'The page the plain HTTP link meant' },
+  '/defects/seo.canonical.to_noindex/hidden': { h1: 'A page kept out of search', head: '<meta name="robots" content="noindex">' },
+  '/defects/seo.canonical.sitemap_mismatch/real': { h1: 'The page the sitemap should list' },
+  '/defects/seo.links.deep/1': { h1: 'Two clicks down', extra: '<p><a href="/defects/seo.links.deep/2">Further</a></p>' },
+  '/defects/seo.links.deep/2': { h1: 'Three clicks down', extra: '<p><a href="/defects/seo.links.deep/3">Further</a></p>' },
+  '/defects/seo.links.deep/3': { h1: 'Four clicks down', extra: '<p><a href="/defects/seo.links.deep/4">Further</a></p>' },
+  '/defects/seo.links.deep/4': { h1: 'Five clicks down' },
 }
 
 /** Sitemap-only and robots-only pages: in the sitemap, and (but for the orphan) linked from the home page. */
-const SITEMAP = ['/', '/defects/links.orphan', '/defects/links.sitemap.stale', '/defects/seo.robots.blocks_sitemap_url']
+const SITEMAP = ['/', '/defects/links.orphan', '/defects/links.sitemap.stale', '/defects/seo.robots.blocks_sitemap_url', '/defects/seo.canonical.sitemap_mismatch']
 
 /**
  * Where the rules not found on their own page are expected, as URL paths on
@@ -178,6 +191,9 @@ export const ELSEWHERE = {
   'ai_readiness.crawlers.policy': ['/robots.txt', 'http://plain.example/robots.txt'],
   'ai_readiness.crawlers.inconsistent': ['/robots.txt'],
   'content.copyright_stale': [null],
+  // The canonical.to_noindex defect needs a page that asks not to be indexed.
+  'seo.noindex': ['/defects/seo.canonical.to_noindex/hidden'],
+  'seo.host.not_canonicalised': ['https://www.short.example/'],
 }
 
 /** Every finding the clean twin may give: the AI crawler summary is always reported, as information. */
@@ -285,6 +301,8 @@ function clean(path, scheme) {
 }
 
 function route(host, scheme, path, ua) {
+  // Every page's social preview image.
+  if (path === '/card.png' && host !== 'partner.example') return { status: 200, type: 'image/png', body: 'png' }
   switch (host) {
     case 'shop.example': return shop(path, scheme, ua)
     case 'clean.example': return clean(path, scheme)
@@ -302,6 +320,9 @@ function route(host, scheme, path, ua) {
       if (path === '/pixel.png') return { status: 200, type: 'image/png', body: 'png' }
       if (path === '/slow') return { status: 200, delayMs: 2_000, body: page({ h1: 'Slow', seed: 'slow' }) }
       return { status: 404, body: page({ h1: 'Not found', seed: 'partner-404' }) }
+    // The short site's other host answers as the site too (seo.host.not_canonicalised); the clean twin's redirects.
+    case 'www.short.example': return { status: 200, body: page({ h1: 'Short example on www', seed: 'short-www' }) }
+    case 'www.clean.example': return { status: 301, headers: { location: `${CLEAN}${path}` } }
     case 'members.example': return { status: 401, headers: { 'www-authenticate': 'Basic realm="members"' }, body: 'Sign in' }
     case 'botwall.example': return isBot(ua) ? { status: 403, body: 'Bots not allowed' } : { status: 200, body: page({ h1: 'Botwall', seed: 'botwall' }) }
     case 'busy.example': return { status: 429, headers: { 'retry-after': '0' }, body: 'Too many requests' }
@@ -311,7 +332,7 @@ function route(host, scheme, path, ua) {
 }
 
 /** The hosts the fixture answers for; `down.example` refuses connections, and any other host does not resolve. */
-export const FIXTURE_HOSTS = ['shop.example', 'clean.example', 'plain.example', 'short.example', 'partner.example', 'members.example', 'botwall.example', 'busy.example', 'docs.shop.example']
+export const FIXTURE_HOSTS = ['shop.example', 'clean.example', 'www.clean.example', 'plain.example', 'short.example', 'www.short.example', 'partner.example', 'members.example', 'botwall.example', 'busy.example', 'docs.shop.example']
 
 /** @returns {Promise<{ port: number, requests: Array<{ method: string, url: string, ua: string }>, close: () => Promise<void> }>} */
 export async function startRulesSite() {
