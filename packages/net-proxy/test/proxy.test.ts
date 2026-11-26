@@ -6,9 +6,9 @@ import http from 'node:http'
 import { connect } from 'node:net'
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { chromium } from 'playwright-core'
+import { chromium, firefox, webkit, type BrowserType } from 'playwright-core'
 import type { LookupAddress, LookupFunction } from '@webtrax/net-guard'
-import { chromiumProxyArgs, startEgressProxy } from '../src'
+import { browserLaunchOptions, chromiumProxyArgs, startEgressProxy, type BrowserEngine } from '../src'
 
 let site: http.Server
 let port: number
@@ -150,6 +150,62 @@ describe('Chromium through the proxy', () => {
       const response = await page.goto(`http://127.0.0.1:${port}/`).catch(() => null)
       expect(response?.status() ?? 403).toBe(403)
       expect(proxy.refused.some((r) => r.target.startsWith('127.0.0.1'))).toBe(true)
+    } finally {
+      await browser.close()
+      await proxy.close()
+    }
+  }, 60_000)
+})
+
+// The same canaries for every engine the browser stage can launch, launched as it launches them.
+const ENGINES: [BrowserEngine, BrowserType][] = [['chromium', chromium], ['webkit', webkit], ['firefox', firefox]]
+describe.each(ENGINES)('%s through the proxy, launched with browserLaunchOptions', (engine, type) => {
+  it('loads the page while the page cannot reach private networks or metadata', async () => {
+    const proxy = await startEgressProxy({ policy: POLICY, lookup: dnsMap({ 'site.test': v4('127.0.0.1') }) })
+    const browser = await type.launch(browserLaunchOptions(engine, proxy.url))
+    hits.length = 0
+    try {
+      const page = await browser.newPage()
+      const response = await page.goto(`http://site.test:${port}/`, { waitUntil: 'load' })
+      expect(response?.status()).toBe(200)
+      expect(await page.locator('h1').textContent()).toBe('Hello')
+      expect(proxy.refused.map((r) => r.target)).toEqual(expect.arrayContaining(['10.0.0.5', '169.254.169.254']))
+      expect(hits).toContain('/ok.png')
+    } finally {
+      await browser.close()
+      await proxy.close()
+    }
+  }, 60_000)
+
+  it('does not let localhost bypass the proxy', async () => {
+    const proxy = await startEgressProxy({ policy: { allowPrivate: false } })
+    const browser = await type.launch(browserLaunchOptions(engine, proxy.url))
+    hits.length = 0
+    try {
+      const page = await browser.newPage()
+      const response = await page.goto(`http://127.0.0.1:${port}/`).catch(() => null)
+      expect(response?.status() ?? 403).toBe(403)
+      expect(proxy.refused.some((r) => r.target.startsWith('127.0.0.1'))).toBe(true)
+      // The site itself never saw the request.
+      expect(hits).toEqual([])
+      const named = await page.goto(`http://localhost:${port}/`).catch(() => null)
+      expect(named?.status() ?? 403).toBe(403)
+      expect(hits).toEqual([])
+    } finally {
+      await browser.close()
+      await proxy.close()
+    }
+  }, 60_000)
+
+  it('resolves no names itself: a name only the proxy knows still loads, and one it refuses never reaches the site', async () => {
+    const proxy = await startEgressProxy({ policy: POLICY, lookup: dnsMap({ 'only-proxy.test': v4('127.0.0.1'), 'private.test': v4('10.0.0.9') }) })
+    const browser = await type.launch(browserLaunchOptions(engine, proxy.url))
+    try {
+      const page = await browser.newPage()
+      expect((await page.goto(`http://only-proxy.test:${port}/`))?.status()).toBe(200)
+      const refused = await page.goto(`http://private.test:${port}/`).catch(() => null)
+      expect(refused?.status() ?? 403).toBe(403)
+      expect(proxy.refused.some((r) => r.target.startsWith('private.test') || r.target === '10.0.0.9')).toBe(true)
     } finally {
       await browser.close()
       await proxy.close()

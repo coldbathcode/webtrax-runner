@@ -25,10 +25,15 @@ export type RunStatus = (typeof RUN_STATUSES)[number]
  * Browser profiles (C06.10): what the browser stage loads a page as.
  * `desktop` is Chromium at laptop size on a fast line; `phone` is Chromium
  * as a mid-range phone (small touch viewport, CPU four times slower, a slow
- * 4G line). Neither is a real device.
+ * 4G line). `webkit-desktop`, `webkit-phone` (Safari's engine at Mac and
+ * iPhone sizes) and `firefox-desktop` are the other engines (C06.10 slice d),
+ * at full speed: for what differs between engines, never in the score. None
+ * is a real device.
  */
-export const BROWSER_PROFILES = ['desktop', 'phone'] as const
+export const BROWSER_PROFILES = ['desktop', 'phone', 'webkit-desktop', 'webkit-phone', 'firefox-desktop'] as const
 export type BrowserProfileId = (typeof BROWSER_PROFILES)[number]
+/** The profiles the Health Score counts (D20): Chromium as a desktop and as a phone. */
+export const SCORED_PROFILES: readonly BrowserProfileId[] = ['desktop', 'phone']
 
 /** What a suite needs from the runner. */
 export const CAPABILITIES = ['http', 'browser', 'dns', 'tls', 'active-probe'] as const

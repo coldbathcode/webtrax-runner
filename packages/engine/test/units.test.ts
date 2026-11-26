@@ -159,3 +159,16 @@ describe('siteOrigins: where a job\'s auth headers may go', () => {
     expect(siteOrigins('http://localhost:4000/')).toEqual(['http://localhost:4000', 'https://localhost'])
   })
 })
+
+describe('engine user agents (C06.10 slice d)', () => {
+  it('are each browser\'s own string with the Webtrax token, as webtrax.dev/bot lists them', async () => {
+    const { webkitDesktopUserAgent, webkitPhoneUserAgent, firefoxUserAgent, profileUserAgent, PROFILES } = await import('../src')
+    const token = '(compatible; WebtraxBot/1.0; +https://webtrax.dev/bot)'
+    expect(webkitDesktopUserAgent('26.0')).toBe(`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15 ${token}`)
+    expect(webkitPhoneUserAgent('26.0')).toBe(`Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1 ${token}`)
+    expect(firefoxUserAgent('144.0.2')).toBe(`Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0 ${token}`)
+    // A user agent the spec sets is sent as it is; Chromium's desktop sends the bot's own.
+    expect(profileUserAgent(PROFILES['firefox-desktop'], '144.0', 'Custom/1', 'Bot/1')).toBe('Custom/1')
+    expect(profileUserAgent(PROFILES.desktop, '143.0', undefined, 'Bot/1')).toBe('Bot/1')
+  })
+})

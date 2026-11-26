@@ -320,3 +320,45 @@ describe('browser stage behind a firewall that challenges the browser', () => {
     }
   }, 90_000)
 })
+
+describe('browser stage in other engines (C06.10 slice d)', () => {
+  it('loads each page in WebKit and Firefox too, at each profile\'s size, with that browser\'s name and ours', async () => {
+    const seen: { profile: string; ua: string; width: number; title: string }[] = []
+    const everyEngine: CheckSuite = {
+      id: 'performance', version: '1', requires: ['http', 'browser'], rules: [rule], defaultSample: 1, everyProfile: true,
+      async onBrowserPage(_ctx, bp) {
+        seen.push({ profile: bp.profile, title: await bp.page.title(), ...(await bp.page.evaluate(() => ({ ua: navigator.userAgent, width: screen.width }))) })
+      },
+    }
+    const r = await crawl({ spec_version: 1, job_id: 'e', target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 }, suites: { performance: { enabled: true } }, browser: { profiles: ['desktop', 'webkit-desktop', 'webkit-phone', 'firefox-desktop'] } },
+      { sink: new MemorySink(), throttle: new HostThrottle(), suites: [everyEngine], options: { traces: false, renderedLinks: false } })
+    expect(r.suiteErrors).toEqual([])
+    const by = Object.fromEntries(seen.map((s) => [s.profile, s]))
+    expect(Object.keys(by)).toEqual(['desktop', 'webkit-desktop', 'webkit-phone', 'firefox-desktop'])
+    for (const s of seen) expect(s.title).toBe('Home')
+    expect(by['webkit-desktop']!.ua).toMatch(/Version\/\d+\.\d+ Safari\/605\.1\.15 \(compatible; WebtraxBot\/1\.0; \+https:\/\/webtrax\.dev\/bot\)$/)
+    expect(by['webkit-phone']!.ua).toMatch(/^Mozilla\/5\.0 \(iPhone; .* Mobile\/15E148 Safari\/604\.1 \(compatible; WebtraxBot\//)
+    expect(by['firefox-desktop']!.ua).toMatch(/^Mozilla\/5\.0 \(Windows NT 10\.0; Win64; x64; rv:\d+\.0\) Gecko\/20100101 Firefox\/\d+\.0 \(compatible; WebtraxBot\//)
+    expect(by['webkit-phone']!.width).toBe(393)
+    expect(by['firefox-desktop']!.width).toBe(1350)
+    expect(r.summary.suites[0]!.pages).toEqual({ desktop: 1, 'webkit-desktop': 1, 'webkit-phone': 1, 'firefox-desktop': 1 })
+  }, 120_000)
+
+  it('a later engine that will not launch costs that profile only, and leaves the suites incomplete', async () => {
+    const seen: string[] = []
+    const suite: CheckSuite = { id: 'performance', version: '1', requires: ['http', 'browser'], rules: [rule], defaultSample: 1, everyProfile: true, onBrowserPage(_c, bp) { seen.push(bp.profile) } }
+    // Firefox looked for where it is not.
+    const { firefox } = await import('playwright-core')
+    const real = firefox.launch.bind(firefox)
+    firefox.launch = async () => { throw new Error('Executable doesn\'t exist') }
+    try {
+      const r = await crawl({ spec_version: 1, job_id: 'f', target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 }, suites: { performance: { enabled: true } }, browser: { profiles: ['desktop', 'firefox-desktop', 'webkit-desktop'] } },
+        { sink: new MemorySink(), throttle: new HostThrottle(), suites: [suite], options: { traces: false, renderedLinks: false } })
+      expect(seen).toEqual(['desktop', 'webkit-desktop'])
+      expect(r.suiteErrors).toEqual([expect.objectContaining({ suite: 'performance', hook: 'browser', message: expect.stringContaining('npx playwright@1.57.0 install firefox') })])
+      expect(r.summary.suites[0]).toMatchObject({ complete: false })
+    } finally {
+      firefox.launch = real
+    }
+  }, 120_000)
+})

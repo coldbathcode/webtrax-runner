@@ -20,6 +20,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium (browser stage, accessibility tests, HTML report checks)
         run: pnpm --filter @webtrax/net-proxy exec playwright-core install --with-deps chromium
+      - name: Install WebKit and Firefox (the other engines' proxy canaries and engine tests)
+        run: pnpm --filter @webtrax/net-proxy exec playwright-core install --with-deps webkit firefox
       - run: pnpm run check
       - run: pnpm run build
       - name: Smoke test the built CLI

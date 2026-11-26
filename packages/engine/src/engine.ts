@@ -39,7 +39,7 @@ import { readRenderedLinks, type RenderedLinks } from './rendered-links'
 import { recordTrace, type PageTrace } from './trace'
 import { startEgressProxy, type Refusal } from '@webtrax/net-proxy'
 import { launchBrowser } from './browser'
-import { deviceUserAgent, PROFILES, phoneUserAgent } from './profiles'
+import { deviceUserAgent, PROFILES, profileUserAgent } from './profiles'
 import { HostThrottle, realClock, sharedThrottle, type ThrottleClock } from './throttle'
 
 export interface EngineOptions {
@@ -780,11 +780,14 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
         const proxy = await startEgressProxy({ policy: { allowPrivate: spec.scope.allow_private }, ...(profile.network ? { shape: profile.network } : {}) })
         let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined
         try {
-          browser = await launchBrowser(proxy.url)
+          browser = await launchBrowser(proxy.url, profile.engine)
         } catch (error) {
+          // The suites did not see this profile, so they are incomplete (nothing they found missing there is fixed).
           for (const suite of suites) suiteErrors.push({ suite: suite.id, hook: 'browser', message: (error as Error).message })
           await proxy.close()
-          return
+          // Without the first profile nothing ran; a later engine that is not installed leaves the others standing.
+          if (first) return
+          continue
         }
         currentProfile = id
         try {
@@ -794,9 +797,11 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
             if (throttle.walled(host)) { wallOf(host).skipped += 1; continue }
             await throttle.wait(host, spec.limits.per_host_rps, internal.signal)
             const context = await browser.newContext({
-              serviceWorkers: 'block', acceptDownloads: false, viewport: profile.viewport, deviceScaleFactor: profile.pixelRatio, hasTouch: profile.touch, isMobile: profile.form === 'phone',
-              // A phone gets Chrome for Android's string with the Webtrax token; a user agent the spec sets is sent as it is.
-              userAgent: profile.form === 'phone' && !spec.user_agent ? phoneUserAgent(browser.version()) : userAgent,
+              serviceWorkers: 'block', acceptDownloads: false, viewport: profile.viewport, deviceScaleFactor: profile.pixelRatio, hasTouch: profile.touch,
+              // Firefox has no mobile mode; Chromium and WebKit do.
+              ...(profile.engine === 'firefox' ? {} : { isMobile: profile.form === 'phone' }),
+              // Each browser's own string with the Webtrax token (Chromium's desktop: the bot's); a user agent the spec sets is sent as it is.
+              userAgent: profileUserAgent(profile, browser.version(), spec.user_agent, userAgent),
             })
             try {
               // Auth headers on the target's own requests only, never on third-party ones.
@@ -804,7 +809,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
                 await context.route((u) => onOrigin(originHeaders.origin, u.origin), (route) => route.continue({ headers: { ...route.request().headers(), ...originHeaders.headers } }))
               }
               const page = await context.newPage()
-              if (profile.cpuSlowdown) {
+              if (profile.cpuSlowdown && profile.engine === 'chromium') {
                 const cdp = await context.newCDPSession(page)
                 await cdp.send('Emulation.setCPUThrottlingRate', { rate: profile.cpuSlowdown })
               }

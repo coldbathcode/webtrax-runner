@@ -6,7 +6,7 @@
  * fallback; with neither, the browser suites fail with instructions and the
  * rest of the run carries on.
  */
-import { chromiumProxyArgs } from '@webtrax/net-proxy'
+import { browserLaunchOptions, type BrowserEngine } from '@webtrax/net-proxy'
 import type { Browser } from 'playwright-core'
 
 export class BrowserUnavailableError extends Error {
@@ -16,14 +16,29 @@ export class BrowserUnavailableError extends Error {
   }
 }
 
-export async function launchBrowser(proxyUrl: string): Promise<Browser> {
-  const { chromium } = await import('playwright-core')
-  const args = chromiumProxyArgs(proxyUrl)
+export class EngineUnavailableError extends Error {
+  constructor(engine: BrowserEngine, cause: string) {
+    super(`Loading pages in ${engine === 'webkit' ? 'WebKit' : 'Firefox'} needs it installed: "npx playwright@1.57.0 install ${engine}". (${cause})`)
+    this.name = 'EngineUnavailableError'
+  }
+}
+
+/** Launches an engine behind the egress proxy (`browserLaunchOptions`). Chromium falls back to the machine's Google Chrome. */
+export async function launchBrowser(proxyUrl: string, engine: BrowserEngine = 'chromium'): Promise<Browser> {
+  const pw = await import('playwright-core')
+  const options = browserLaunchOptions(engine, proxyUrl)
+  if (engine !== 'chromium') {
+    try {
+      return await pw[engine].launch(options)
+    } catch (error) {
+      throw new EngineUnavailableError(engine, (error as Error).message.split('\n')[0] ?? 'launch failed')
+    }
+  }
   try {
-    return await chromium.launch({ args })
+    return await pw.chromium.launch(options)
   } catch (first) {
     try {
-      return await chromium.launch({ args, channel: 'chrome' })
+      return await pw.chromium.launch({ ...options, channel: 'chrome' })
     } catch {
       throw new BrowserUnavailableError((first as Error).message.split('\n')[0] ?? 'launch failed')
     }

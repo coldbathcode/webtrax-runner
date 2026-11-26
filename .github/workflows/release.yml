@@ -34,6 +34,7 @@ jobs:
             if (p.version !== tag) { console.error(`tag ${tag} does not match @webtrax/cli ${p.version}`); process.exit(1) }
           '
       - run: pnpm --filter @webtrax/net-proxy exec playwright-core install --with-deps chromium
+      - run: pnpm --filter @webtrax/net-proxy exec playwright-core install --with-deps webkit firefox
       - run: pnpm run check
       - run: pnpm run build
       - name: npm with trusted publishing (11.5.1 or later)

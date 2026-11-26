@@ -64,5 +64,11 @@
       "source": "/",
       "severity": "medium"
     }
+  ],
+  "engines": [
+    {
+      "rule_id": "performance.engine.weight_differs",
+      "path": "/defects/performance.engine.weight_differs"
+    }
   ]
 }

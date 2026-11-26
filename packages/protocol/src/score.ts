@@ -35,7 +35,7 @@
  * The constants are part of the published formula (docs: /health-score/).
  * Changing any of them, or the formula, means a new SCORE_VERSION.
  */
-import type { BrowserProfileId, Severity, SuiteId } from './enums'
+import { SCORED_PROFILES, type BrowserProfileId, type Severity, type SuiteId } from './enums'
 
 export const SCORE_VERSION = 2
 
@@ -128,7 +128,8 @@ export function healthScore(input: ScoreInput): HealthScore {
     const mine = input.findings.filter((f) => f.suite === suite)
     // Only the browser suites are judged against their own sample; every other suite reads the whole crawl.
     const checked = SCORE_PER_DEVICE.includes(suite) ? ran.get(suite) : undefined
-    const devices = (Object.keys(checked ?? {}) as BrowserProfileId[]).filter((d) => (checked?.[d] ?? 0) > 0)
+    // Only Chromium's desktop and phone count: WebKit and Firefox raise findings and never change the score.
+    const devices = (Object.keys(checked ?? {}) as BrowserProfileId[]).filter((d) => SCORED_PROFILES.includes(d) && (checked?.[d] ?? 0) > 0)
     if (devices.length > 1) {
       // Once per device: what was seen there, at the severity it had there, against the pages checked there.
       const per = devices.map((d) => {
@@ -142,7 +143,10 @@ export function healthScore(input: ScoreInput): HealthScore {
       })
       continue
     }
-    const { penalty, rules } = penaltyOf(mine, count(devices.length === 1 ? checked![devices[0]!] : undefined, crawled))
+    // One scored device: a finding seen in several profiles counts at its severity there, and one seen only in another engine not at all.
+    const one = devices.length === 1 ? devices[0]! : null
+    const counted = one ? mine.flatMap((f) => (f.by_profile ? (f.by_profile[one] ? [{ ...f, severity: f.by_profile[one]! }] : []) : [f])) : mine
+    const { penalty, rules } = penaltyOf(counted, count(one ? checked![one] : undefined, crawled))
     suites.push({ suite, score: scoreOf(penalty), penalty: round(penalty, 4), weight, rules })
   }
   if (!suites.length) return { version: SCORE_VERSION, score: null, grade: null, suites }

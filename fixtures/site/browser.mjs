@@ -10,6 +10,8 @@
 //             timing noise) and text that only JavaScript writes
 //   device    desktop and phone: a page linked only from a desktop menu, and a
 //             link a fixed banner covers
+//   engines   Chromium and Firefox at desktop size: a page that downloads 300 kB
+//             more in Firefox (as a site that sniffs the browser would)
 //
 // Each site has a clean twin: the same kinds of pages, done right.
 
@@ -118,15 +120,31 @@ function device(clean, path) {
   return { status: 404, body: page({ title: 'Not found', seed: 'nf' }) }
 }
 
+function engines(clean, path) {
+  switch (path) {
+    case '/': return { status: 200, body: page({ title: clean ? 'Engines clean' : 'Engines defects', seed: 'engines-home', extra: '<p><a href="/defects/performance.engine.weight_differs">The page one engine pays more for</a></p>' }) }
+    case '/defects/performance.engine.weight_differs':
+      return {
+        status: 200,
+        body: page({
+          title: 'Heavier in one engine', seed: 'engines-weight',
+          after: clean ? '' : '<script>if (navigator.userAgent.includes("Firefox/")) document.head.append(Object.assign(document.createElement("script"), { src: "/defects/performance.engine.weight_differs/extra.js" }))</script>',
+        }),
+      }
+    case '/defects/performance.engine.weight_differs/extra.js': return { status: 200, type: 'text/javascript', body: `/*${'y'.repeat(300 * 1024)}*/` }
+  }
+  return { status: 404, body: page({ title: 'Not found', seed: 'nf' }) }
+}
+
 /**
- * @param {'measure' | 'device'} kind
+ * @param {'measure' | 'device' | 'engines'} kind
  * @param {{ clean?: boolean }} [options]
  * @returns {Promise<{ origin: string, close: () => Promise<void> }>}
  */
 export async function startBrowserSite(kind, { clean = false } = {}) {
   const server = http.createServer(async (req, res) => {
     const path = new URL(req.url, 'http://fixture').pathname
-    const r = kind === 'measure' ? measure(clean, path) : device(clean, path)
+    const r = kind === 'measure' ? measure(clean, path) : kind === 'device' ? device(clean, path) : engines(clean, path)
     if (r.delayMs) await new Promise((resolve) => setTimeout(resolve, r.delayMs))
     if (res.destroyed) return
     res.writeHead(r.status, { 'content-type': r.type ?? 'text/html; charset=utf-8', 'cache-control': 'no-store' })

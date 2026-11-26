@@ -357,13 +357,16 @@
                     "desktop"
                   ],
                   "minItems": 1,
-                  "maxItems": 2,
+                  "maxItems": 5,
                   "type": "array",
                   "items": {
                     "type": "string",
                     "enum": [
                       "desktop",
-                      "phone"
+                      "phone",
+                      "webkit-desktop",
+                      "webkit-phone",
+                      "firefox-desktop"
                     ]
                   }
                 },
@@ -691,7 +694,10 @@
           "type": "string",
           "enum": [
             "desktop",
-            "phone"
+            "phone",
+            "webkit-desktop",
+            "webkit-phone",
+            "firefox-desktop"
           ]
         }
       },
@@ -1339,7 +1345,10 @@
                   "type": "string",
                   "enum": [
                     "desktop",
-                    "phone"
+                    "phone",
+                    "webkit-desktop",
+                    "webkit-phone",
+                    "firefox-desktop"
                   ]
                 },
                 "additionalProperties": {

@@ -63,3 +63,17 @@ describe('performance suite in Chromium', () => {
     expect(r.findings.filter((f) => f.url === `${origin}/`)).toEqual([])
   }, 120_000)
 })
+
+describe('engines compared (C06.10 slice d)', () => {
+  it('flags a page one engine downloads 30% and 100 kB more of, at the same size only', async () => {
+    const { engineWeightDiffers } = await import('../src')
+    expect(engineWeightDiffers({ desktop: 330_000, 'webkit-desktop': 495_000, 'firefox-desktop': 317_000 })).toMatchObject({ heaviest: 'webkit-desktop', lightest: 'firefox-desktop' })
+    // Under 100 kB apart, or under 30% more, is the same page.
+    expect(engineWeightDiffers({ desktop: 300_000, 'webkit-desktop': 380_000 })).toBeNull()
+    expect(engineWeightDiffers({ desktop: 2_000_000, 'firefox-desktop': 2_400_000 })).toBeNull()
+    // A phone rightly loads less than a desktop: not compared across sizes.
+    expect(engineWeightDiffers({ desktop: 900_000, phone: 300_000 })).toBeNull()
+    expect(engineWeightDiffers({ phone: 300_000, 'webkit-phone': 600_000 })).toMatchObject({ heaviest: 'webkit-phone', lightest: 'phone' })
+    expect(engineWeightDiffers({ desktop: 300_000 })).toBeNull()
+  })
+})

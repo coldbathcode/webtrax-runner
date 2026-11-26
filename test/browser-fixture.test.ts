@@ -21,7 +21,7 @@ const FILE = join(import.meta.dirname, '..', 'fixtures', 'expected', 'browser-fi
 /** The rules only the browser stage finds: what this fixture is for. */
 const BROWSER_RULES = (id: string) => id.startsWith('a11y.') || id.startsWith('performance.') || id === 'ai_readiness.render.js_only' || id === 'links.device.unreachable_on_phone' || id === 'links.device.covered'
 /** Every one of these must be found; for a11y, the fixture's sample of axe's rules. */
-const MUST_FIND = [...Object.keys(MEASURE_DEFECTS), 'links.device.unreachable_on_phone', 'links.device.covered']
+const MUST_FIND = [...Object.keys(MEASURE_DEFECTS), 'links.device.unreachable_on_phone', 'links.device.covered', 'performance.engine.weight_differs']
 
 // The device runs need a browser suite to start the stage; a phone loading the speed pages would fire every speed
 // rule on its slow line, so they load pages with a suite that measures nothing.
@@ -52,17 +52,19 @@ const lines = (name: string) => {
 }
 
 beforeAll(async () => {
-  for (const [name, kind, clean] of [['measure', 'measure', false], ['measure-clean', 'measure', true], ['device', 'device', false], ['device-clean', 'device', true]] as const) sites[name] = await startBrowserSite(kind, { clean })
+  for (const [name, kind, clean] of [['measure', 'measure', false], ['measure-clean', 'measure', true], ['device', 'device', false], ['device-clean', 'device', true], ['engines', 'engines', false], ['engines-clean', 'engines', true]] as const) sites[name] = await startBrowserSite(kind, { clean })
   const measureSuites = [a11ySuite, performanceSuite, aiSuite]
   const deviceSuites = [linksSuite, loader]
   // In parallel: the speed pages are slow on purpose.
-  const [m, mc, d, dc] = await Promise.all([
+  const [m, mc, d, dc, e, ec] = await Promise.all([
     run('measure', sites.measure!.origin, measureSuites, ['desktop']),
     run('measure-clean', sites['measure-clean']!.origin, measureSuites, ['desktop']),
     run('device', sites.device!.origin, deviceSuites, ['desktop', 'phone']),
     run('device-clean', sites['device-clean']!.origin, deviceSuites, ['desktop', 'phone']),
+    run('engines', sites.engines!.origin, [performanceSuite], ['desktop', 'firefox-desktop']),
+    run('engines-clean', sites['engines-clean']!.origin, [performanceSuite], ['desktop', 'firefox-desktop']),
   ])
-  Object.assign(results, { measure: m, 'measure-clean': mc, device: d, 'device-clean': dc })
+  Object.assign(results, { measure: m, 'measure-clean': mc, device: d, 'device-clean': dc, engines: e, 'engines-clean': ec })
 }, 240_000)
 afterAll(async () => { for (const s of Object.values(sites)) await s.close() })
 
@@ -76,14 +78,14 @@ describe('browser fixture', () => {
   })
 
   it('finds every browser-stage rule it has a page for', () => {
-    const found = new Set([...lines('measure'), ...lines('device')].map((l) => l.rule_id))
+    const found = new Set([...lines('measure'), ...lines('device'), ...lines('engines')].map((l) => l.rule_id))
     expect(MUST_FIND.filter((r) => !found.has(r))).toEqual([])
     // Every performance rule there is, and the rest of the browser-only rules, have a page here.
     for (const r of performanceSuite.rules) expect(MUST_FIND).toContain(r.id)
   })
 
   it('reports each rule on its own page: no finding lands on another rule\'s page', () => {
-    const astray = ['measure', 'device'].flatMap((name) => lines(name)
+    const astray = ['measure', 'device', 'engines'].flatMap((name) => lines(name)
       .filter((l) => ![l.path, l.source ?? null].some((p) => p === `/defects/${l.rule_id}`))
       .map((l) => `${name}: ${l.rule_id} at ${l.path}`))
     expect(astray).toEqual([])
@@ -92,10 +94,11 @@ describe('browser fixture', () => {
   it('the clean twins give no browser-stage findings', () => {
     expect(lines('measure-clean')).toEqual([])
     expect(lines('device-clean')).toEqual([])
+    expect(lines('engines-clean')).toEqual([])
   })
 
   it('findings match fixtures/expected/browser-findings.json', () => {
-    const now = { measure: lines('measure'), device: lines('device') }
+    const now = { measure: lines('measure'), device: lines('device'), engines: lines('engines') }
     const text = `${JSON.stringify(now, null, 2)}\n`
     if (process.env.UPDATE_GOLDEN) writeFileSync(FILE, text)
     expect(existsSync(FILE), 'run with UPDATE_GOLDEN=1 to create it').toBe(true)

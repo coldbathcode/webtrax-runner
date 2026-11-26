@@ -64,7 +64,9 @@ Options for check
   --browser              also run the browser suites (a11y, performance) and the JavaScript-only
                          content check; needs Chromium or Chrome
   --profile <list>       load pages as desktop, phone or both (desktop,phone): phone is Chromium
-                         as a mid-range phone on slow 4G. Turns --browser on
+                         as a mid-range phone on slow 4G. Other engines: webkit-desktop,
+                         webkit-phone (Safari's engine) and firefox-desktop, for what differs
+                         between engines (never in the score). Turns --browser on
   --fail-on <severity>   exit 1 at this severity or worse: critical, high, medium, low, info, none (default high)
   --reports <list>       report files to write: html,md,json,sarif,junit (default html,md)
   --out <dir>            where runs are written: <dir>/runs/<time>/ (default ./.webtrax)

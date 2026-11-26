@@ -41,7 +41,7 @@ export const scoreText = (r: Report): string | null => (r.score.score === null ?
 export interface SpeedValues { lcp_ms?: number; cls?: number; ttfb_ms?: number; transfer_bytes?: number; load_ms?: number }
 export interface SpeedRow { url: string; profiles: Partial<Record<BrowserProfileId, SpeedValues>> }
 const SPEED_METRICS = new Set(['lcp_ms', 'cls', 'ttfb_ms', 'transfer_bytes', 'load_ms'])
-export const PROFILE_LABELS: Record<BrowserProfileId, string> = { desktop: 'Desktop', phone: 'Phone' }
+export const PROFILE_LABELS: Record<BrowserProfileId, string> = { desktop: 'Desktop', phone: 'Phone', 'webkit-desktop': 'WebKit (Safari\'s engine), desktop size', 'webkit-phone': 'WebKit (Safari\'s engine), phone size', 'firefox-desktop': 'Firefox, desktop size' }
 
 /** The run's speed metrics by page, then by the profile that measured them (records without one are desktop). */
 export function speedRows(records: readonly RunLine[]): SpeedRow[] {

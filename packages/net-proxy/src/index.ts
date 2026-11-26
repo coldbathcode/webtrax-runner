@@ -77,6 +77,40 @@ export function chromiumProxyArgs(proxyUrl: string): string[] {
   ]
 }
 
+/** The browser engines the browser stage can run (C06.10 slice d). */
+export type BrowserEngine = 'chromium' | 'webkit' | 'firefox'
+
+/**
+ * Firefox preferences that keep every request on the proxy: loopback too
+ * (Firefox never proxies localhost unless told to), no DNS of its own
+ * (prefetch, speculative connections, DNS over HTTPS), no WebRTC and no
+ * HTTP/3.
+ */
+export const FIREFOX_PROXY_PREFS: Record<string, string | number | boolean> = {
+  'network.proxy.allow_hijacking_localhost': true,
+  'network.proxy.no_proxies_on': '',
+  'network.dns.disablePrefetch': true,
+  'network.dns.disablePrefetchFromHTTPS': true,
+  'network.predictor.enabled': false,
+  'network.prefetch-next': false,
+  'network.http.speculative-parallel-limit': 0,
+  'network.trr.mode': 5,
+  'network.http.http3.enable': false,
+  'media.peerconnection.enabled': false,
+}
+
+/**
+ * Launch options that put an engine behind the proxy: Chromium by its own
+ * flags (`chromiumProxyArgs`), WebKit and Firefox by Playwright's proxy
+ * setting with nothing bypassed, and Firefox's preferences above. Every
+ * engine is held to the same canary tests (test/proxy.test.ts).
+ */
+export function browserLaunchOptions(engine: BrowserEngine, proxyUrl: string): { args?: string[]; proxy?: { server: string; bypass: string }; firefoxUserPrefs?: Record<string, string | number | boolean> } {
+  if (engine === 'chromium') return { args: chromiumProxyArgs(proxyUrl) }
+  const proxy = { server: proxyUrl, bypass: '' }
+  return engine === 'firefox' ? { proxy, firefoxUserPrefs: FIREFOX_PROXY_PREFS } : { proxy }
+}
+
 function resolveChecked(policy: ScopePolicy, host: string, lookupImpl: LookupFunction): Promise<string> {
   const bare = host.replace(/^\[|\]$/g, '')
   return new Promise((resolve, reject) => {

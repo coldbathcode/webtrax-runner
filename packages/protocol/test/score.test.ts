@@ -123,3 +123,24 @@ describe('health score v2', () => {
     expect(healthScore({ findings, pages: 50, suites: [{ id: 'a11y', pages: { desktop: 25, phone: 0 } }] }).suites[0]!.devices).toBeUndefined()
   })
 })
+
+describe('other engines never change the score (C06.10 slice d)', () => {
+  it('scores a desktop run with WebKit and Firefox as the desktop alone', async () => {
+    const { healthScore } = await import('../src/score')
+    const a11y = (by_profile?: Record<string, 'high' | 'medium'>) => ({ suite: 'a11y', rule_id: 'a11y.image_alt', severity: 'high' as const, url: 'https://s.example/a', ...(by_profile ? { by_profile } : {}) })
+    const desktopOnly = healthScore({ pages: 10, suites: [{ id: 'a11y', pages: { desktop: 5 } }], findings: [a11y()] })
+    // The same finding seen on desktop and in WebKit, and one seen only in Firefox.
+    const withEngines = healthScore({
+      pages: 10,
+      suites: [{ id: 'a11y', pages: { desktop: 5, 'webkit-desktop': 5, 'firefox-desktop': 5 } }],
+      findings: [a11y({ desktop: 'high', 'webkit-desktop': 'high' }), { ...a11y({ 'firefox-desktop': 'medium' }), rule_id: 'a11y.label' }],
+    })
+    expect(withEngines.score).toBe(desktopOnly.score)
+    expect(withEngines.suites[0]!.devices).toBeUndefined()
+    // Desktop and phone with WebKit beside them: the mean of the two Chromium devices only.
+    const two = healthScore({ pages: 10, suites: [{ id: 'a11y', pages: { desktop: 5, phone: 5 } }], findings: [a11y({ desktop: 'high' })] })
+    const twoPlus = healthScore({ pages: 10, suites: [{ id: 'a11y', pages: { desktop: 5, phone: 5, 'webkit-phone': 5 } }], findings: [a11y({ desktop: 'high', 'webkit-phone': 'high' })] })
+    expect(twoPlus.score).toBe(two.score)
+    expect(Object.keys(twoPlus.suites[0]!.devices!)).toEqual(['desktop', 'phone'])
+  })
+})
