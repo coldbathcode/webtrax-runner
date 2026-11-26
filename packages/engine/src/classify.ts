@@ -49,3 +49,27 @@ export function isBrokenOutcome(o: { status: number | null; error?: FetchError |
   if (o.error) return o.error !== 'rate_limited' && o.error !== 'robots_disallowed'
   return o.status !== null && o.status >= 400 && o.status !== 429 && !UNVERIFIABLE_STATUSES.has(o.status)
 }
+
+/**
+ * A firewall or bot challenge, from what its vendor documents it sends, or
+ * null. Only clear signals count: a challenge header, or a refusal (403, 405,
+ * 429, 503) from the vendor's own edge. A plain 403 from a site is not a
+ * wall: it may be a real page that wants a sign-in. The engine slows down
+ * and pauses on a wall, then stops asking (`throttle.ts`); it never tries to
+ * get past one.
+ */
+export function botWall(status: number | null, headers: Record<string, string> | undefined): string | null {
+  if (status === null || !headers) return null
+  const h = (name: string) => headers[name]?.toLowerCase() ?? ''
+  if (h('cf-mitigated') === 'challenge') return 'Cloudflare'
+  if (h('x-vercel-mitigated') === 'challenge' || h('x-vercel-mitigated') === 'deny') return 'Vercel'
+  if (/^(challenge|captcha|block)$/.test(h('x-amzn-waf-action'))) return 'AWS WAF'
+  if (h('x-datadome') || h('x-dd-b')) return status >= 400 ? 'DataDome' : null
+  const refused = status === 403 || status === 405 || status === 429 || status === 503
+  if (!refused) return null
+  // Akamai's edge names itself only on answers it made; Cloudflare, Imperva and Sucuri stamp every
+  // proxied answer, so their server headers on a 403 may be the site's own 403 and do not count.
+  if (/^akamaighost/.test(h('server'))) return 'Akamai'
+  if (headers['x-sucuri-block']) return 'Sucuri'
+  return null
+}

@@ -35,6 +35,8 @@ const Config = z.strictObject({
     max_depth: z.int().min(0).optional(),
     concurrency: z.int().positive().optional(),
     per_host_rps: z.number().positive().optional(),
+    /** Your own site may speed up to this while it answers well (other hosts keep per_host_rps). */
+    origin_max_rps: z.number().positive().max(50).optional(),
     time_budget_s: z.int().positive().optional(),
   }).optional(),
   suites: z.partialRecord(z.enum(AVAILABLE_SUITES), z.strictObject({ enabled: z.boolean() })).optional(),
@@ -173,6 +175,7 @@ export function buildSpec(config: Config, flags: CheckFlags, jobId: string): Job
       max_depth: flags.maxDepth ?? own.max_depth ?? profileLimits.max_depth ?? 10,
       concurrency: flags.concurrency ?? own.concurrency ?? 4,
       per_host_rps: flags.rps ?? own.per_host_rps ?? 2,
+      ...(own.origin_max_rps ? { origin_max_rps: own.origin_max_rps } : {}),
       time_budget_s: flags.timeBudget ?? own.time_budget_s ?? 600,
     },
     suites,
@@ -255,6 +258,7 @@ limits:
   max_pages: 300
   max_depth: 10
   per_host_rps: 2        # requests per second to each host
+  # origin_max_rps: 20   # your own site: speed up to this while it answers well, back off on 429s and firewalls
   time_budget_s: 600
 
 suites:

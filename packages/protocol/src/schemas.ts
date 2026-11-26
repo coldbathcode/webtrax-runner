@@ -64,6 +64,13 @@ export const JobSpec = z.object({
       max_depth: z.int().min(0).max(100).default(10),
       concurrency: z.int().min(1).max(64).default(4),
       per_host_rps: z.number().positive().max(50).default(2),
+      /**
+       * How fast the scan's own site may go (requests a second), when more than
+       * `per_host_rps`: the engine starts at `per_host_rps` and speeds up while
+       * the site answers well, backing off on 429s, slow answers and walls.
+       * Other hosts stay at `per_host_rps`. Absent: the site is held to it too.
+       */
+      origin_max_rps: z.number().positive().max(50).optional(),
       time_budget_s: z.int().min(10).max(86_400).default(600),
     })
     .default({ max_pages: 300, max_depth: 10, concurrency: 4, per_host_rps: 2, time_budget_s: 600 }),
@@ -305,6 +312,18 @@ export const SummaryRecord = z.object({
     /** For a suite that ran in the browser stage: the pages it looked at, per browser profile (Health Score v2). */
     pages: z.partialRecord(z.enum(BROWSER_PROFILES), z.int().min(0)).optional(),
   })),
+  /**
+   * Hosts whose firewall or bot protection answered instead of the page
+   * (`by`: the vendor when known), with how many answers were walls and how
+   * many URLs were then not asked for. What they hid could not be verified.
+   * `origin` marks the site itself.
+   */
+  walls: z.array(z.object({
+    host: z.string().max(255), by: z.string().max(40).nullable(), origin: z.boolean(),
+    walls: z.int().min(0), skipped: z.int().min(0),
+  })).max(50).optional(),
+  /** The fastest the site itself was asked, in requests a second, when it could set its own pace (`limits.origin_max_rps`). */
+  origin_rps: z.number().min(0).optional(),
 })
 export type SummaryRecord = z.output<typeof SummaryRecord>
 

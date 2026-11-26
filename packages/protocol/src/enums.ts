@@ -45,7 +45,8 @@ export const RUN_ERRORS = ['start_url_unreachable', 'start_url_redirects_offsite
 export type RunError = (typeof RUN_ERRORS)[number]
 
 /** Why a run ended early with status `partial`. */
-export const STOP_REASONS = ['time_budget', 'canceled', 'page_limit', 'depth_limit', 'page_truncated'] as const
+/** `blocked`: the site's own firewall or bot protection refused the scanner, and it stopped asking. */
+export const STOP_REASONS = ['time_budget', 'canceled', 'page_limit', 'depth_limit', 'page_truncated', 'blocked'] as const
 /** Stops that are the crawl's own limits: everything the run reached was checked in full, but the site is larger than the run. */
 export const LIMIT_STOPS: readonly StopReason[] = ['page_limit', 'depth_limit', 'page_truncated']
 export type StopReason = (typeof STOP_REASONS)[number]

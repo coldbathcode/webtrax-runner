@@ -304,10 +304,30 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   }, opts.timeBudgetMs ?? spec.limits.time_budget_s * 1000)
 
   const originHeaders = authHeaders(spec)
+  const throttle = deps.throttle ?? sharedThrottle
+  // The site itself may find its own pace (limits.origin_max_rps); every other host keeps per_host_rps.
+  // It is set again for the origin the start URL settles on (a redirect to www. is the same site).
+  let originHost = new URL(spec.target.start_url).host
+  const originMax = spec.limits.origin_max_rps
+  const paceOrigin = (host: string) => { if (originMax) throttle.adaptive(host, spec.limits.per_host_rps, originMax) }
+  paceOrigin(originHost)
+  // Firewalls and bot walls met in this run, per host: reported, never got around.
+  const walls = new Map<string, { by: string | null; walls: number; skipped: number }>()
+  const wallOf = (host: string) => walls.get(host) ?? (walls.set(host, { by: null, walls: 0, skipped: 0 }), walls.get(host)!)
   const requester: Requester = createRequester({
-    fetch, throttle: deps.throttle ?? sharedThrottle, clock, userAgent, rps: spec.limits.per_host_rps, signal: internal.signal,
+    fetch, throttle, clock, userAgent, rps: spec.limits.per_host_rps, signal: internal.signal,
     timeoutMs: opts.requestTimeoutMs, retryDelayMs: opts.retryDelayMs, maxBodyBytes: opts.maxHtmlBytes, rateLimitAttempts: opts.rateLimitAttempts,
-    onRateLimited: (host) => (deps.throttle ?? sharedThrottle).penalise(host),
+    onRateLimited: (host) => throttle.penalise(host),
+    onWalled: (host, by) => {
+      const w = wallOf(host)
+      w.by ??= by
+      w.walls += 1
+      const verdict = throttle.wall(host)
+      // The site's own protection keeps refusing: what is left of the crawl would only be refused too.
+      if (verdict === 'stop' && host === originHost) stop('blocked')
+      return verdict
+    },
+    onWallSkip: (host) => { wallOf(host).skipped += 1 },
     ...(originHeaders ? { originHeaders } : {}),
   })
 
@@ -398,6 +418,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
         ...(skippedSuites.has(x.id) ? { skipped: true } : {}),
         ...(browserPages.has(x) ? { pages: browserPages.get(x)! } : {}),
       })), ...summary,
+      ...(walls.size ? { walls: [...walls].slice(0, 50).map(([host, w]) => ({ host, by: w.by, origin: host === originHost, walls: w.walls, skipped: w.skipped })) } : {}),
+      ...(originMax ? { origin_rps: Math.round((throttle.peakRate(originHost) ?? spec.limits.per_host_rps) * 10) / 10 } : {}),
     }
     for (const severity of findingSeverity.values()) record.findings[severity] += 1
     await write(record)
@@ -420,6 +442,10 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     }, null)
   }
   const origin = new URL(start.finalUrl).origin
+  if (new URL(origin).host !== originHost) {
+    originHost = new URL(origin).host
+    paceOrigin(originHost)
+  }
   const startUrl = normaliseUrl(start.finalUrl) ?? start.finalUrl
   const isInternal = (url: string) => new URL(url).origin === origin
 
@@ -430,7 +456,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
     const r = await requester.text(robotsUrl, opts.maxRobotsBytes)
     robots = parseRobots(robotsUrl, r.status !== null && r.status < 400 ? (r.body ?? '') : '', userAgent)
     const delay = robots.crawlDelay()
-    if (delay) (deps.throttle ?? sharedThrottle).setCrawlDelay(new URL(origin).host, delay)
+    if (delay) throttle.setCrawlDelay(new URL(origin).host, delay)
   }
 
   const sitemapUrls: string[] = []
@@ -512,7 +538,8 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   }
 
   const recordLink = (url: string, internalLink: boolean, via: LinkOutcome['via'], o: Pick<Outcome, 'status' | 'error' | 'finalUrl' | 'chain'>) => {
-    if (via !== 'skipped') reachedUrls.add(url)
+    // A URL that a rate limit or a wall answered was not checked: nothing about it may be called fixed (V2-COR-01).
+    if (via !== 'skipped' && o.error !== 'rate_limited') reachedUrls.add(url)
     site.links.set(url, { url, internal: internalLink, via, status: o.status, ...(o.error ? { error: o.error } : {}), finalUrl: o.finalUrl, chain: o.chain })
   }
 
@@ -742,7 +769,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
         try {
           for (const [url, forSuites] of plan) {
             if (stopReason) break
-            await (deps.throttle ?? sharedThrottle).wait(new URL(url).host, spec.limits.per_host_rps, internal.signal)
+            await throttle.wait(new URL(url).host, spec.limits.per_host_rps, internal.signal)
             const context = await browser.newContext({
               serviceWorkers: 'block', acceptDownloads: false, viewport: profile.viewport, deviceScaleFactor: profile.pixelRatio, hasTouch: profile.touch, isMobile: profile.form === 'phone',
               // A phone gets Chrome for Android's string with the Webtrax token; a user agent the spec sets is sent as it is.

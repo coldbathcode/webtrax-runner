@@ -2,7 +2,10 @@
  * Every request the engine makes goes through here: the host throttle, a
  * per-request timeout tied to the job's abort signal, the identifying
  * headers, one retry for transient failures (v1 semantics), Retry-After on
- * 429/503, and for link checks HEAD with a GET fallback. The network itself is
+ * 429/503, firewalls and bot challenges (pause, then stop asking that host;
+ * never an attempt to get past one), and for link checks HEAD with a GET
+ * fallback. Good answers feed the throttle, so the scan's own site can go as
+ * fast as it answers well. The network itself is
  * @webtrax/net-guard, so scope, redirects and DNS are checked underneath.
  *
  * Pages follow redirects one hop at a time, so the engine can stop at a hop
@@ -10,8 +13,8 @@
  */
 import { discardBody, readTextCapped, type GuardedFetch } from '@webtrax/net-guard'
 import type { FetchError, RedirectHop } from '@webtrax/protocol'
-import { classifyError, isTransientError, isTransientStatus, retryAfterMs } from './classify'
-import type { HostThrottle, ThrottleClock } from './throttle'
+import { botWall, classifyError, isTransientError, isTransientStatus, retryAfterMs } from './classify'
+import type { HostThrottle, ThrottleClock, WallVerdict } from './throttle'
 
 export interface Outcome {
   url: string
@@ -28,6 +31,12 @@ export interface Outcome {
   timing: { ttfb: number; total: number }
   /** How many HTTP requests this outcome took (redirect hops, retries and HEAD→GET included). */
   requests: number
+  /**
+   * A firewall or bot challenge answered (`by`: the vendor, when known), or the
+   * host had walled so often that this URL was not asked for at all
+   * (`skipped`). Always with `error: 'rate_limited'`: could not verify, never broken.
+   */
+  wall?: { by: string | null; skipped: boolean }
 }
 
 export interface RequesterOptions {
@@ -44,6 +53,10 @@ export interface RequesterOptions {
   rateLimitAttempts: number
   maxRedirects?: number
   onRateLimited?: (host: string) => void
+  /** A wall answered for `host`: the caller records it and says whether to pause and try once more, or stop. */
+  onWalled?: (host: string, by: string) => WallVerdict
+  /** A URL not asked for because its host had walled too often. */
+  onWallSkip?: (host: string) => void
   /** The job's auth headers, for the target's own origin only (net-guard drops them on any other hop). */
   originHeaders?: { origin: string; headers: Record<string, string> }
 }
@@ -59,7 +72,7 @@ const headFailed = (a: { status: number | null; retryAfter?: string | null | und
 const HTML = /text\/html|application\/xhtml\+xml/i
 
 /** One exchange, with what the retry logic needs to know. */
-type Attempt = Outcome & { retryAfter?: string | null; transientError?: boolean; location?: string | null; wireMs?: number }
+type Attempt = Outcome & { retryAfter?: string | null; transientError?: boolean; location?: string | null; wireMs?: number; wallBy?: string; /** The host that walled (a redirect hop may be on another). */ wallHost?: string }
 
 interface OnceOptions { method: 'GET' | 'HEAD'; referer?: string | undefined; read: (contentType: string) => boolean; maxBytes: number; manual: boolean; userAgent?: string; /** Read 4xx and 5xx bodies too (an error page can be the evidence). */ readErrors?: boolean }
 
@@ -83,7 +96,12 @@ export function createRequester(o: RequesterOptions) {
   /** One HTTP exchange; never throws. */
   async function once(url: string, x: OnceOptions): Promise<Attempt> {
     const started = o.clock.now()
-    await o.throttle.wait(new URL(url).host, o.rps, o.signal)
+    const host = new URL(url).host
+    if (o.throttle.walled(host)) {
+      o.onWallSkip?.(host)
+      return { url, finalUrl: url, status: null, error: 'rate_limited', chain: [], requests: 0, timing: { ttfb: 0, total: 0 }, wall: { by: null, skipped: true } }
+    }
+    await o.throttle.wait(host, o.rps, o.signal)
     const sent = o.clock.now()
     const signal = AbortSignal.any([o.signal, AbortSignal.timeout(o.timeoutMs)])
     try {
@@ -95,6 +113,12 @@ export function createRequester(o: RequesterOptions) {
         retryAfter: response.headers.get('retry-after'), location: response.headers.get('location'), ...(contentType ? { contentType } : {}),
         wireMs: o.clock.now() - sent,
       }
+      const wallBy = botWall(response.status, base.headers)
+      if (wallBy) {
+        await discardBody(response)
+        return { ...base, wallBy, wallHost: host, timing: { ttfb, total: o.clock.now() - started } }
+      }
+      if (response.status !== 429 && response.status < 500) o.throttle.observe(host, base.wireMs)
       if (x.method === 'GET' && (response.status < 300 || (x.readErrors && response.status >= 400)) && x.read(contentType ?? '')) {
         const { text, truncated } = await readTextCapped(response, x.maxBytes)
         return { ...base, body: text, truncated, timing: { ttfb, total: o.clock.now() - started } }
@@ -112,9 +136,17 @@ export function createRequester(o: RequesterOptions) {
     let requests = 0
     let retriedTransient = false
     let rateLimited = 0
+    let walls = 0
     for (;;) {
       const r = await attempt()
       requests += r.requests
+      if (r.wall?.skipped) return strip({ ...r, requests })
+      if (r.wallBy && !o.signal.aborted) {
+        const verdict = o.onWalled?.(r.wallHost ?? new URL(r.url).host, r.wallBy) ?? 'stop'
+        // One more try after the pause the throttle now holds; a second wall is the answer.
+        if (verdict === 'pause' && ++walls < 2) continue
+        return strip({ ...r, error: 'rate_limited', wall: { by: r.wallBy, skipped: false }, requests })
+      }
       const limited = r.status === 429 || (r.status === 503 && !!r.retryAfter)
       if (limited && !o.signal.aborted) {
         o.onRateLimited?.(new URL(r.finalUrl).host)
@@ -134,7 +166,7 @@ export function createRequester(o: RequesterOptions) {
     }
   }
 
-  const strip = ({ retryAfter: _r, transientError: _t, location: _l, wireMs: _w, ...rest }: Attempt): Outcome => rest
+  const strip = ({ retryAfter: _r, transientError: _t, location: _l, wireMs: _w, wallBy: _b, wallHost: _h, ...rest }: Attempt): Outcome => rest
 
   /** GET a page, following redirects hop by hop; stops early when `stopAt(next)` says the target is already known. */
   async function pageAttempt(url: string, referer: string | undefined, stopAt: (next: string) => boolean): Promise<Attempt> {
@@ -174,7 +206,7 @@ export function createRequester(o: RequesterOptions) {
     link: (url: string, referer?: string) =>
       withRetries(async () => {
         const head = await once(url, { method: 'HEAD', referer, read: () => false, maxBytes: 0, manual: false })
-        if (!headFailed(head)) return head
+        if (!headFailed(head) || head.wallBy || head.wall) return head
         const get = await once(url, { method: 'GET', referer, read: () => false, maxBytes: 0, manual: false })
         return { ...get, requests: get.requests + head.requests }
       }),
