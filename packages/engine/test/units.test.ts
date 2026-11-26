@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { ScopeDeniedError } from '@webtrax/net-guard'
 import { parseNdjson } from '@webtrax/protocol'
 import { describe, expect, it } from 'vitest'
-import { classifyError, HostThrottle, isBrokenOutcome, LocalSink, parseRobots, parseSitemap, retryAfterMs, robotsProductToken, type ThrottleClock } from '../src'
+import { classifyError, HostThrottle, siteOrigins, isBrokenOutcome, LocalSink, parseRobots, parseSitemap, retryAfterMs, robotsProductToken, type ThrottleClock } from '../src'
 import { parseHtml } from '../src/html'
 
 /** A clock where sleep advances time instantly, recording each start. */
@@ -144,3 +144,18 @@ describe('the layout skeleton (template_key)', () => {
   })
 })
 
+
+describe('siteOrigins: where a job\'s auth headers may go', () => {
+  it('is the start origin and its www. twin, never down to http', () => {
+    expect(siteOrigins('https://shop.example.com/pricing')).toEqual(['https://shop.example.com', 'https://www.shop.example.com'])
+    expect(siteOrigins('https://www.example.com/')).toEqual(['https://www.example.com', 'https://example.com'])
+    expect(siteOrigins('https://example.com:8443/')).toEqual(['https://example.com:8443', 'https://www.example.com:8443'])
+  })
+  it('adds the https form of an http start, as a redirect to it is the same site', () => {
+    expect(siteOrigins('http://example.com/')).toEqual(['http://example.com', 'http://www.example.com', 'https://example.com', 'https://www.example.com'])
+  })
+  it('gives an address no www. form', () => {
+    expect(siteOrigins('http://127.0.0.1:4000/')).toEqual(['http://127.0.0.1:4000', 'https://127.0.0.1'])
+    expect(siteOrigins('http://localhost:4000/')).toEqual(['http://localhost:4000', 'https://localhost'])
+  })
+})

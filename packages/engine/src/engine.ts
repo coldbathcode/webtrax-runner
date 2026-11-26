@@ -21,7 +21,7 @@
  *   and sitemaps are not read. `rules` narrows what is reported. A suite
  *   whose config says `start_only` sees the start page only.
  */
-import { createGuardedFetch, type GuardedFetch } from '@webtrax/net-guard'
+import { createGuardedFetch, onOrigin, type GuardedFetch } from '@webtrax/net-guard'
 import {
   BOT_USER_AGENT, fingerprint, JobSpec, normaliseUrl, PROTOCOL_VERSION, RuleMeta, ruleSelected, severityRank, type BrowserProfileId, type FetchError, type FindingRecord, type JobSpecInput, type PageRecord,
   type RedirectHop, type RunLine, type Severity, type StopReason, type SummaryRecord,
@@ -247,9 +247,10 @@ function pathMatcher(patterns: readonly string[]): (url: string) => boolean {
 }
 
 /**
- * The job's `auth.headers` (a protected preview's bypass header, say), for the
- * start URL's origin only. Values must be plain strings here: a secret
- * reference is resolved by whoever builds the spec.
+ * The job's `auth.headers` (a protected preview's bypass header, a site's
+ * firewall pass), for the start URL's own site only (siteOrigins). Values
+ * must be plain strings here: a secret reference is resolved by whoever
+ * builds the spec.
  */
 /** The spec as the run record keeps it: auth values never reach run.ndjson or a report. */
 export function redactAuth(spec: JobSpec): JobSpec {
@@ -263,7 +264,25 @@ export function redactAuth(spec: JobSpec): JobSpec {
   return { ...spec, auth }
 }
 
-export function authHeaders(spec: JobSpec): { origin: string; headers: Record<string, string> } | undefined {
+/**
+ * The origins that are the start URL's own site, for its auth headers: the
+ * start origin, the same host with or without a leading `www.` (a redirect
+ * between the two is the same site, and adopted as its origin), and the https
+ * form of an http start. Never down to http from https: the values are secrets.
+ */
+export function siteOrigins(startUrl: string): string[] {
+  const u = new URL(startUrl)
+  const port = u.port ? `:${u.port}` : ''
+  const host = u.hostname.toLowerCase()
+  // An address (IPv4 or [IPv6]) or a single-label name (localhost) has no www. form.
+  const bare = host.startsWith('www.') ? host.slice(4) : host
+  const named = !/^[\d.]+$/.test(host) && !host.startsWith('[') && bare.includes('.')
+  const hosts = named ? [host, host === bare ? `www.${host}` : bare] : [host]
+  const schemes = u.protocol === 'http:' ? ['http:', 'https:'] : [u.protocol]
+  return [...new Set([u.origin, ...schemes.flatMap((s) => hosts.map((h) => `${s}//${h}${s === u.protocol ? port : ''}`))])]
+}
+
+export function authHeaders(spec: JobSpec): { origin: string[]; headers: Record<string, string> } | undefined {
   const given = spec.auth?.headers
   if (!given || !Object.keys(given).length) return undefined
   const headers: Record<string, string> = {}
@@ -272,7 +291,7 @@ export function authHeaders(spec: JobSpec): { origin: string; headers: Record<st
     if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n\0]/.test(value)) throw new Error(`auth header ${name}: invalid name or value`)
     headers[name.toLowerCase()] = value
   }
-  return { origin: new URL(spec.target.start_url).origin, headers }
+  return { origin: siteOrigins(spec.target.start_url), headers }
 }
 
 export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<CrawlResult> {
@@ -778,7 +797,7 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
             try {
               // Auth headers on the target's own requests only, never on third-party ones.
               if (originHeaders) {
-                await context.route((u) => u.origin === originHeaders.origin, (route) => route.continue({ headers: { ...route.request().headers(), ...originHeaders.headers } }))
+                await context.route((u) => onOrigin(originHeaders.origin, u.origin), (route) => route.continue({ headers: { ...route.request().headers(), ...originHeaders.headers } }))
               }
               const page = await context.newPage()
               if (profile.cpuSlowdown) {

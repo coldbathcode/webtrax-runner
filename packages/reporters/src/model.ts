@@ -87,7 +87,7 @@ export function caveatText(summary: SummaryRecord): string | null {
   if (summary.stop_reason === 'depth_limit') parts.push('Some pages are deeper than this run may follow links: they were not checked.')
   if (summary.stop_reason === 'page_truncated') parts.push('A page was larger than the size limit and was read only in part.')
   const own = summary.walls?.find((w) => w.origin)
-  if (summary.stop_reason === 'blocked' || own) parts.push(`The site's ${own?.by ? `${own.by} ` : ''}firewall refused the scanner part way through, so it stopped asking: pages it refused were not checked. Allow WebtraxBot (https://webtrax.dev/bot) and run again.`)
+  if (summary.stop_reason === 'blocked' || own) parts.push(`The site's ${own?.by ? `${own.by} ` : ''}firewall refused the scanner part way through, so it stopped asking: pages it refused were not checked. Let it in with a rule in your firewall (https://webtrax.dev/bot#firewall-pass) and run again.`)
   const others = (summary.walls ?? []).filter((w) => !w.origin)
   if (others.length) parts.push(`Bot protection on ${others.slice(0, 3).map((w) => `${w.host}${w.by ? ` (${w.by})` : ''}`).join(', ')}${others.length > 3 ? ` and ${others.length - 3} more` : ''} refused the link checks: links there could not be verified, and none is counted as broken.`)
   return parts.length ? parts.join(' ') : null

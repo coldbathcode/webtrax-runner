@@ -9,9 +9,9 @@
  * - Redirects are followed by hand, one hop at a time, and every hop is
  *   checked the same way. The chain is returned, because the crawler reports
  *   it (PageRecord.redirect_chain).
- * - `originHeaders` (a protected preview's bypass header, say) go only to
- *   that origin: added on each hop that is on it, never on a hop a redirect
- *   took elsewhere.
+ * - `originHeaders` (a protected preview's bypass header, a site's firewall
+ *   pass) go only to the origins named: added on each hop that is on one,
+ *   never on a hop a redirect took elsewhere.
  */
 import { Agent, fetch as undiciFetch, Headers, type RequestInit, type Response } from 'undici'
 import { createGuardedLookup, type LookupFunction } from './lookup'
@@ -30,9 +30,12 @@ export interface GuardedFetchOptions {
 export interface RedirectHop { url: string; status: number }
 
 export interface GuardedRequestInit extends RequestInit {
-  /** Headers sent only to `origin` (scheme, host and port), on every hop that is on it, and on no other. */
-  originHeaders?: { origin: string; headers: Record<string, string> }
+  /** Headers sent only to `origin` (scheme, host and port; or each of a list), on every hop that is on one, and on no other. */
+  originHeaders?: { origin: string | readonly string[]; headers: Record<string, string> }
 }
+
+/** Whether `origin` is the one named, or one of a list. */
+export const onOrigin = (named: string | readonly string[], origin: string): boolean => (typeof named === 'string' ? named === origin : named.includes(origin))
 
 export interface FetchResult {
   response: Response
@@ -86,7 +89,7 @@ export function createGuardedFetch(options: GuardedFetchOptions = {}): GuardedFe
     const chain: RedirectHop[] = []
     for (;;) {
       const hopInit: RequestInit = { ...init, method, dispatcher, redirect: 'manual' }
-      if (originHeaders && new URL(current).origin === originHeaders.origin) {
+      if (originHeaders && onOrigin(originHeaders.origin, new URL(current).origin)) {
         const headers = new Headers(init.headers ?? {})
         for (const [k, v] of Object.entries(originHeaders.headers)) headers.set(k, v)
         hopInit.headers = headers

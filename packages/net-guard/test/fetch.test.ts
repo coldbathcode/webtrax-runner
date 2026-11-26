@@ -200,4 +200,10 @@ describe('origin headers', () => {
   it('leaves other requests alone', async () => {
     expect(await (await guarded(`${origin}/echo-bypass`)).response.text()).toBe('')
   })
+
+  it('goes to each origin of a list, and to no other', async () => {
+    const list = { originHeaders: { origin: [`http://other.test:${port}`, 'https://site.test'], headers: { 'x-bypass': 's3cret' } } }
+    expect(await (await guarded(`http://other.test:${port}/echo-bypass`, list)).response.text()).toBe('s3cret')
+    expect(await (await guarded(`${origin}/echo-bypass`, list)).response.text()).toBe('')
+  })
 })

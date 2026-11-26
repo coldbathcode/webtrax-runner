@@ -57,8 +57,8 @@ export interface RequesterOptions {
   onWalled?: (host: string, by: string) => WallVerdict
   /** A URL not asked for because its host had walled too often. */
   onWallSkip?: (host: string) => void
-  /** The job's auth headers, for the target's own origin only (net-guard drops them on any other hop). */
-  originHeaders?: { origin: string; headers: Record<string, string> }
+  /** The job's auth headers, for the target's own site only (net-guard drops them on any other hop). */
+  originHeaders?: { origin: string | readonly string[]; headers: Record<string, string> }
 }
 
 /**
