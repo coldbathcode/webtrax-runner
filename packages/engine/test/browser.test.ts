@@ -4,7 +4,7 @@ import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { RuleMeta } from '@webtrax/protocol'
-import { crawl, HostThrottle, MemorySink, type CheckSuite } from '../src'
+import { crawl, HostThrottle, MemorySink, WALL_LIMIT, type CheckSuite } from '../src'
 
 let origin: string
 let server: http.Server
@@ -248,6 +248,75 @@ describe('browser stage with auth headers (a protected preview)', () => {
     } finally {
       await new Promise<void>((r) => locked.close(() => r()))
       await new Promise<void>((r) => other.close(() => r()))
+    }
+  }, 90_000)
+})
+
+describe('browser stage behind a firewall that challenges the browser', () => {
+  // A throttle whose pauses pass at once: a wall's pause is 15 s and more.
+  const quickThrottle = () => { let t = 0; return new HostThrottle({ now: () => t, sleep: async (ms) => { t += ms } }) }
+  const challenge = (res: http.ServerResponse) => {
+    res.writeHead(403, { 'content-type': 'text/html', 'cf-mitigated': 'challenge', server: 'cloudflare' })
+    res.end('<!doctype html><html lang="en"><title>Just a moment...</title><body>Checking your browser</body></html>')
+  }
+  const serveSite = async (walled: (path: string) => boolean) => {
+    const loads: string[] = []
+    const s = http.createServer((req, res) => {
+      // The HTTP stage gets the pages; a browser's page load (sec-fetch-mode: navigate) may get the challenge.
+      if (req.headers['sec-fetch-mode'] === 'navigate') {
+        loads.push(req.url!)
+        if (walled(req.url!)) return challenge(res)
+      }
+      const page = (title: string, body: string) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<!doctype html><html lang="en"><title>${title}</title><body>${body}</body></html>`) }
+      if (req.url === '/') return page('Home', '<a href="/a">a</a><a href="/b">b</a><a href="/c">c</a>')
+      if (req.url === '/a' || req.url === '/b' || req.url === '/c') return page(`Page ${req.url}`, '<h1>Hi</h1>')
+      res.writeHead(404).end()
+    })
+    await new Promise<void>((r) => s.listen(0, '127.0.0.1', r))
+    return { origin: `http://127.0.0.1:${(s.address() as AddressInfo).port}`, loads, close: () => new Promise<void>((r) => s.close(() => r())) }
+  }
+  const suite = (seen: string[]): CheckSuite => ({
+    id: 'performance', version: '1', requires: ['http', 'browser'], rules: [rule], defaultSample: 10,
+    async onBrowserPage(ctx, bp) {
+      seen.push(await bp.page.title())
+      await ctx.emit({ rule_id: rule.id, url: bp.url, evidence: {} })
+    },
+  })
+  const spec = (origin: string) => ({ spec_version: 1 as const, job_id: 'w', target: { start_url: `${origin}/` }, scope: { allow_private: true }, limits: { per_host_rps: 50 }, suites: { performance: { enabled: true } } })
+
+  it('measures nothing on a challenge: no suite sees it, it is not reached, and the wall is reported', async () => {
+    const site = await serveSite((path) => path === '/a')
+    try {
+      const seen: string[] = []
+      const r = await crawl(spec(site.origin), { sink: new MemorySink(), throttle: quickThrottle(), suites: [suite(seen)] })
+      expect(seen).toEqual(['Home', 'Page /b', 'Page /c'])
+      expect(r.findings.map((f) => (f.url ?? '').replace(site.origin, ''))).toEqual(['/', '/b', '/c'])
+      expect(r.reached.bySuite.performance!.map((u) => u.replace(site.origin, '')).sort()).toEqual(['/', '/b', '/c'])
+      expect(r.site!.browser!.pages).toBe(3)
+      expect(r.summary.suites[0]!.pages).toEqual({ desktop: 3 })
+      // One wall: reported (the report's caveat points to the firewall pass), and the run goes on.
+      expect(r.summary.walls).toEqual([{ host: new URL(site.origin).host, by: 'Cloudflare', origin: true, walls: 1, skipped: 0 }])
+      expect(r.summary.status).toBe('completed')
+    } finally {
+      await site.close()
+    }
+  }, 90_000)
+
+  it('stops at the third wall: partial and blocked, the suite skipped, no thumbnail of a challenge, and nothing more loaded', async () => {
+    const site = await serveSite(() => true)
+    try {
+      const seen: string[] = []
+      let home = 0
+      const r = await crawl(spec(site.origin), { sink: new MemorySink(), throttle: quickThrottle(), suites: [suite(seen)], onHomePage: () => { home += 1 } })
+      expect(seen).toEqual([])
+      expect(home).toBe(0)
+      expect(site.loads).toHaveLength(WALL_LIMIT)
+      expect(r.summary).toMatchObject({ status: 'partial', stop_reason: 'blocked' })
+      expect(r.summary.walls).toEqual([expect.objectContaining({ by: 'Cloudflare', origin: true, walls: WALL_LIMIT })])
+      expect(r.summary.suites[0]).toMatchObject({ id: 'performance', skipped: true })
+      expect(r.findings).toEqual([])
+    } finally {
+      await site.close()
     }
   }, 90_000)
 })

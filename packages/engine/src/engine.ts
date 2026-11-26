@@ -26,7 +26,7 @@ import {
   BOT_USER_AGENT, fingerprint, JobSpec, normaliseUrl, PROTOCOL_VERSION, RuleMeta, ruleSelected, severityRank, type BrowserProfileId, type FetchError, type FindingRecord, type JobSpecInput, type PageRecord,
   type RedirectHop, type RunLine, type Severity, type StopReason, type SummaryRecord,
 } from '@webtrax/protocol'
-import { isBrokenOutcome } from './classify'
+import { botWall, isBrokenOutcome } from './classify'
 import { isHtml, parseHtml, type ParsedDoc } from './html'
 import { linkRecords } from './links'
 import { rdapRegistration, systemDns, type Lookups } from './lookups'
@@ -333,19 +333,21 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
   // Firewalls and bot walls met in this run, per host: reported, never got around.
   const walls = new Map<string, { by: string | null; walls: number; skipped: number }>()
   const wallOf = (host: string) => walls.get(host) ?? (walls.set(host, { by: null, walls: 0, skipped: 0 }), walls.get(host)!)
+  // A wall met by the HTTP stage or the browser stage: slow down and pause for it, and stop once the site's own keeps refusing.
+  const recordWall = (host: string, by: string) => {
+    const w = wallOf(host)
+    w.by ??= by
+    w.walls += 1
+    const verdict = throttle.wall(host)
+    // The site's own protection keeps refusing: what is left of the crawl would only be refused too.
+    if (verdict === 'stop' && host === originHost) stop('blocked')
+    return verdict
+  }
   const requester: Requester = createRequester({
     fetch, throttle, clock, userAgent, rps: spec.limits.per_host_rps, signal: internal.signal,
     timeoutMs: opts.requestTimeoutMs, retryDelayMs: opts.retryDelayMs, maxBodyBytes: opts.maxHtmlBytes, rateLimitAttempts: opts.rateLimitAttempts,
     onRateLimited: (host) => throttle.penalise(host),
-    onWalled: (host, by) => {
-      const w = wallOf(host)
-      w.by ??= by
-      w.walls += 1
-      const verdict = throttle.wall(host)
-      // The site's own protection keeps refusing: what is left of the crawl would only be refused too.
-      if (verdict === 'stop' && host === originHost) stop('blocked')
-      return verdict
-    },
+    onWalled: (host, by) => recordWall(host, by),
     onWallSkip: (host) => { wallOf(host).skipped += 1 },
     ...(originHeaders ? { originHeaders } : {}),
   })
@@ -788,7 +790,9 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
         try {
           for (const [url, forSuites] of plan) {
             if (stopReason) break
-            await throttle.wait(new URL(url).host, spec.limits.per_host_rps, internal.signal)
+            const host = new URL(url).host
+            if (throttle.walled(host)) { wallOf(host).skipped += 1; continue }
+            await throttle.wait(host, spec.limits.per_host_rps, internal.signal)
             const context = await browser.newContext({
               serviceWorkers: 'block', acceptDownloads: false, viewport: profile.viewport, deviceScaleFactor: profile.pixelRatio, hasTouch: profile.touch, isMobile: profile.form === 'phone',
               // A phone gets Chrome for Android's string with the Webtrax token; a user agent the spec sets is sent as it is.
@@ -807,7 +811,16 @@ export async function crawl(input: JobSpecInput, deps: CrawlDeps = {}): Promise<
               const trace = opts.traces ? recordTrace(page, url, id) : null
               const started = clock.now()
               const response = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).catch(() => null)
-              const bp: BrowserPage = { url, status: response?.status() ?? null, loadMs: clock.now() - started, page, profile: id }
+              const status = response?.status() ?? null
+              // A firewall or bot challenge instead of the page (the same signals as the HTTP stage): nothing
+              // is measured on it, no suite sees it, and it is not reached, so nothing on it can be called
+              // fixed. Closing the context drops whatever the challenge set; a challenge is never got around.
+              const wallBy = response ? botWall(status, response.headers()) : null
+              if (wallBy) {
+                recordWall(new URL(response!.url()).host, wallBy)
+                continue
+              }
+              const bp: BrowserPage = { url, status, loadMs: clock.now() - started, page, profile: id }
               loaded += 1
               for (const suite of forSuites) {
                 browserUrls.set(suite, (browserUrls.get(suite) ?? new Set()).add(url))
