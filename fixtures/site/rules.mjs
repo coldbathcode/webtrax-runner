@@ -40,8 +40,8 @@ const WORDS = (
   'trail beacon cairn dormer eave gable hearth inglenook joist keystone lintel mullion newel oriel parapet quoin rafter sill transom'
 ).split(' ')
 
-/** About `n` words of plain text, different for every seed and the same for the same seed. */
-export function prose(seed, n = 90) {
+/** About `n` words of plain text (160 by default: more than seo.content.thin asks for), different for every seed and the same for the same seed. */
+export function prose(seed, n = 160) {
   let h = 2166136261
   for (const ch of seed) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0
   const next = () => (h = (Math.imul(h, 1103515245) + 12345) >>> 0)
@@ -132,13 +132,17 @@ export const DEFECTS = {
   'seo.canonical.sitemap_mismatch': { head: `<link rel="canonical" href="${SHOP}/defects/seo.canonical.sitemap_mismatch/real">` },
   'seo.links.deep': { extra: '<p><a href="/defects/seo.links.deep/1">One level down</a></p>' },
   'seo.social.og_image_broken': { head: '<meta property="og:image:alt" content="A card">', og: 'broken' },
+  'seo.robots.blocks_assets': { head: '<link rel="stylesheet" href="/defects/seo.robots.blocks_assets/site.css">' },
+  'seo.schema.incomplete': { jsonLd: JSON.stringify({ '@context': 'https://schema.org', '@type': 'Product', name: 'Brass lantern' }) },
+  'seo.content.thin': { main: `<p>${prose('seo.content.thin', 60)}</p>` },
+  'seo.url.hygiene': { extra: '<p><a href="/defects/seo.url.hygiene/Summer-Sale">The summer sale</a></p>' },
   // content
   'content.placeholder': { extra: '<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>' },
   'content.dictionary': { extra: '<p>Upgrade from Acme Classic today.</p>' },
   'content.date_stale': { extra: '<p>Last updated: March 2019</p>' },
   'content.copyright_stale': { footer: '<p>© 2019 Shop Example</p>' },
   'content.empty_page': { main: '<p>Coming soon.</p>' },
-  'content.duplicate': { main: `<p>${prose('content.duplicate.shared', 100)}</p>`, extra: '<p><a href="/defects/content.duplicate/copy">The copy</a></p>' },
+  'content.duplicate': { main: `<p>${prose('content.duplicate.shared', 160)}</p>`, extra: '<p><a href="/defects/content.duplicate/copy">The copy</a></p>' },
   // ai_readiness
   'ai_readiness.schema.invalid': { jsonLd: '{"@type": "Organization",}' },
 }
@@ -147,7 +151,7 @@ export const DEFECTS = {
 const SUB_PAGES = {
   '/defects/seo.title.duplicate/twin': { h1: 'The duplicate title\'s twin', title: 'Two pages, one title' },
   '/defects/seo.meta_description.duplicate/twin': { h1: 'The duplicate description\'s twin', description: 'Two pages that share this one description.' },
-  '/defects/content.duplicate/copy': { h1: 'The copy of a page', main: `<p>${prose('content.duplicate.shared', 100)}</p>` },
+  '/defects/content.duplicate/copy': { h1: 'The copy of a page', main: `<p>${prose('content.duplicate.shared', 160)}</p>` },
   '/defects/links.redirect.chain/end': { h1: 'Where the moved page ended up' },
   '/defects/links.redirect.to_http/target': { h1: 'The page the plain HTTP link meant' },
   '/defects/seo.canonical.to_noindex/hidden': { h1: 'A page kept out of search', head: '<meta name="robots" content="noindex">' },
@@ -156,6 +160,7 @@ const SUB_PAGES = {
   '/defects/seo.links.deep/2': { h1: 'Three clicks down', extra: '<p><a href="/defects/seo.links.deep/3">Further</a></p>' },
   '/defects/seo.links.deep/3': { h1: 'Four clicks down', extra: '<p><a href="/defects/seo.links.deep/4">Further</a></p>' },
   '/defects/seo.links.deep/4': { h1: 'Five clicks down' },
+  '/defects/seo.url.hygiene/Summer-Sale': { h1: 'The summer sale, at an address with capitals' },
 }
 
 /** Sitemap-only and robots-only pages: in the sitemap, and (but for the orphan) linked from the home page. */
@@ -194,6 +199,8 @@ export const ELSEWHERE = {
   // The canonical.to_noindex defect needs a page that asks not to be indexed.
   'seo.noindex': ['/defects/seo.canonical.to_noindex/hidden'],
   'seo.host.not_canonicalised': ['https://www.short.example/'],
+  // One finding for the whole site, per kind of address problem; its example is /defects/seo.url.hygiene/Summer-Sale.
+  'seo.url.hygiene': [null],
 }
 
 /** Every finding the clean twin may give: the AI crawler summary is always reported, as information. */
@@ -232,7 +239,7 @@ function shop(path, scheme, ua) {
   const headers = path === '/' ? WEAK_HEADERS : STRONG_HEADERS
   switch (path) {
     case '/robots.txt':
-      return { status: 200, type: 'text/plain', body: 'User-agent: Googlebot\nDisallow: /defects/seo.robots.blocks_sitemap_url\n\nUser-agent: ChatGPT-User\nDisallow: /\n\nUser-agent: *\nDisallow:\n\nSitemap: https://shop.example/sitemap.xml\n' }
+      return { status: 200, type: 'text/plain', body: 'User-agent: Googlebot\nDisallow: /defects/seo.robots.blocks_sitemap_url\nDisallow: /defects/seo.robots.blocks_assets/\n\nUser-agent: ChatGPT-User\nDisallow: /\n\nUser-agent: *\nDisallow:\n\nSitemap: https://shop.example/sitemap.xml\n' }
     case '/sitemap.xml':
       return { status: 200, type: 'application/xml', body: `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${SITEMAP.map((p) => `<url><loc>${SHOP}${p}</loc></url>`).join('')}</urlset>` }
     case '/llms.txt':
@@ -247,6 +254,7 @@ function shop(path, scheme, ua) {
           nav: `<ul>${Object.keys(DEFECTS).filter((r) => r !== 'links.orphan').map((r) => `<li><a href="/defects/${r}">${r}</a></li>`).join('')}</ul>`,
         }),
       }
+    case '/defects/seo.robots.blocks_assets/site.css': return { status: 200, type: 'text/css', headers, body: 'body { margin: 0 }' }
     case '/defects/links.redirect.chain/1': return { status: 301, headers: { location: '/defects/links.redirect.chain/2' } }
     case '/defects/links.redirect.chain/2': return { status: 301, headers: { location: '/defects/links.redirect.chain/3' } }
     case '/defects/links.redirect.chain/3': return { status: 301, headers: { location: '/defects/links.redirect.chain/end' } }
@@ -273,7 +281,15 @@ const CLEAN_PAGES = {
   },
   '/clean/seo': {
     h1: 'Search engines understand this page',
-    head: `<link rel="canonical" href="${CLEAN}/clean/seo"><link rel="alternate" hreflang="en" href="${CLEAN}/clean/seo"><link rel="alternate" hreflang="x-default" href="${CLEAN}/clean/seo">`,
+    jsonLd: JSON.stringify({
+      '@context': 'https://schema.org',
+      '@graph': [
+        { '@type': 'WebPage', name: 'Search engines understand this page' },
+        { '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: `${CLEAN}/` }, { '@type': 'ListItem', position: 2, name: 'SEO' }] },
+        { '@type': 'Product', name: 'Clean lantern', offers: { '@type': 'Offer', price: '12.00', priceCurrency: 'GBP' } },
+      ],
+    }),
+    head: `<link rel="stylesheet" href="/site.css"><script src="/app.js" defer></script><link rel="canonical" href="${CLEAN}/clean/seo"><link rel="alternate" hreflang="en" href="${CLEAN}/clean/seo"><link rel="alternate" hreflang="x-default" href="${CLEAN}/clean/seo">`,
     extra: '<h2>A section</h2><h3>A subsection</h3>',
   },
   '/clean/content': { h1: 'Finished, current content', extra: '<p>Last updated: May 2026</p>' },
@@ -290,6 +306,8 @@ function clean(path, scheme) {
     case '/llms.txt':
       return { status: 200, type: 'text/markdown', body: `# Clean example\n\n> A site that does everything right.\n\n${Object.keys(CLEAN_PAGES).filter((p) => !p.includes('/here')).map((p) => `- [${p}](${CLEAN}${p})`).join('\n')}\n` }
     case '/clean/links/moved': return { status: 301, headers: { location: '/clean/links/here' } }
+    case '/site.css': return { status: 200, type: 'text/css', headers: STRONG_HEADERS, body: 'body { margin: 0 }' }
+    case '/app.js': return { status: 200, type: 'text/javascript', headers: STRONG_HEADERS, body: '' }
     case '/':
       return {
         status: 200, headers: STRONG_HEADERS,

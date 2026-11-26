@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ALLOW_ALL, parseHtml, type CrawledPage, type FindingInput, type SuiteCtx } from '@webtrax/engine'
 import { JobSpec, type PageRecord } from '@webtrax/protocol'
-import { previewOrLocalHost, seoSuite } from '../src'
+import { previewOrLocalHost, schemaProblems, seoSuite, THIN_WORDS, urlProblems } from '../src'
 
 const O = 'https://site.example'
 type Answer = { status: number | null; error?: 'dns_error' | 'connection_error'; body?: string }
@@ -213,5 +213,103 @@ describe('seo suite', () => {
       expect(await run({ status: 301 })).toEqual([])
       expect(await run({ status: null, error: 'dns_error' })).toEqual([])
     })
+  })
+})
+
+const words = (n: number, seed = 'w') => Array.from({ length: n }, (_, i) => `${seed}${i.toString(36)}`).join(' ')
+const withMain = (main: string, head = '', attrs = 'lang="en"') => `<html ${attrs}><head><title>T</title><meta name="description" content="D">${OG}${head}</head><body><nav>${words(200, 'nav')}</nav><main><h1>T</h1>${main}</main><footer>${words(50, 'f')}</footer></body></html>`
+
+describe('seo suite, third slice (C06.3)', () => {
+  it('seo.content.thin: 20 to 149 words of main content on an indexable page, menus and footer left out', async () => {
+    const s = setup()
+    await seoSuite.onPage!(s.ctx, page(withMain(`<p>${words(60)}</p>`), {}, 200, '/thin'))
+    await seoSuite.onPage!(s.ctx, page(withMain(`<p>${words(THIN_WORDS)}</p>`), {}, 200, '/full'))
+    // Below 20 words is content.empty_page's; a noindex page, a form's page, one naming another canonical and a Japanese page are left alone.
+    await seoSuite.onPage!(s.ctx, page(withMain('<p>Coming soon.</p>'), {}, 200, '/empty'))
+    await seoSuite.onPage!(s.ctx, page(withMain(`<p>${words(60)}</p>`, '<meta name="robots" content="noindex">'), {}, 200, '/hidden'))
+    await seoSuite.onPage!(s.ctx, page(withMain(`<p>${words(60)}</p><form><input name="q"></form>`), {}, 200, '/search'))
+    // A newsletter box in the footer does not make it a form's page.
+    await seoSuite.onPage!(s.ctx, page(withMain(`<p>${words(60)}</p>`).replace('</footer>', '<form><input name="email"></form></footer>'), {}, 200, '/news'))
+    await seoSuite.onPage!(s.ctx, page(withMain(`<p>${words(60)}</p>`, `<link rel="canonical" href="${O}/full">`), {}, 200, '/copy'))
+    await seoSuite.onPage!(s.ctx, page(withMain(`<p>${words(60)}</p>`, '', 'lang="ja"'), {}, 200, '/ja'))
+    const thin = s.emitted.filter((f) => f.rule_id === 'seo.content.thin')
+    expect(thin.map((f) => [f.url, f.evidence])).toEqual([[`${O}/thin`, { words: 61 }], [`${O}/news`, { words: 61 }]])
+  })
+
+  it('seo.schema.incomplete: required properties, per type, top-level entities only', async () => {
+    expect(schemaProblems(JSON.stringify({ '@type': 'Product', name: 'Lamp' }))).toEqual([{ type: 'Product', missing: ['offers, review or aggregateRating'] }])
+    expect(schemaProblems(JSON.stringify({ '@type': 'Product', name: 'Lamp', offers: { price: '9' } }))).toEqual([])
+    expect(schemaProblems(JSON.stringify({ '@type': 'http://schema.org/Event', name: 'Fair' }))).toEqual([{ type: 'Event', missing: ['startDate', 'location'] }])
+    expect(schemaProblems(JSON.stringify({ '@type': 'MusicEvent', name: 'Gig', startDate: '2026-12-01', location: { name: 'Hall' } }))).toEqual([])
+    expect(schemaProblems(JSON.stringify({ '@type': ['Restaurant'], name: 'Cafe' }))).toEqual([{ type: 'LocalBusiness', missing: ['address'] }])
+    // Breadcrumbs: every crumb needs a position and a name; all but the last a URL.
+    const crumbs = { '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: `${O}/` }, { '@type': 'ListItem', position: 2, name: 'Shoes' }] }
+    expect(schemaProblems(JSON.stringify(crumbs))).toEqual([])
+    expect(schemaProblems(JSON.stringify({ ...crumbs, itemListElement: [{ position: 1, item: { '@id': `${O}/`, name: 'Home' } }, { name: 'Shoes' }, { position: 3, name: 'Red' }] })))
+      .toEqual([{ type: 'BreadcrumbList', missing: ['itemListElement.position', 'itemListElement.item'] }])
+    expect(schemaProblems(JSON.stringify({ '@type': 'FAQPage', mainEntity: [{ '@type': 'Question', name: 'Why?', acceptedAnswer: { text: 'Because.' } }, { '@type': 'Question', name: 'How?' }] })))
+      .toEqual([{ type: 'FAQPage', missing: ['mainEntity.acceptedAnswer.text'] }])
+    // A @graph, and an array of blocks; a nested publisher is not judged; unknown types and bad JSON are someone else's.
+    expect(schemaProblems(JSON.stringify({ '@context': 'https://schema.org', '@graph': [{ '@type': 'WebSite', name: 'S' }, { '@type': 'Organization', url: O }] }))).toEqual([{ type: 'Organization', missing: ['name'] }])
+    expect(schemaProblems(JSON.stringify([{ '@type': 'BlogPosting', headline: 'Hi', publisher: { '@type': 'Organization' } }]))).toEqual([])
+    expect(schemaProblems(JSON.stringify({ '@type': 'Recipe' }))).toEqual([])
+    expect(schemaProblems('{"@type": "Product",}')).toEqual([])
+
+    const s = setup()
+    const ld = (o: unknown) => `<script type="application/ld+json">${JSON.stringify(o)}</script>`
+    await seoSuite.onPage!(s.ctx, page(GOOD.replace('</head>', `${ld({ '@type': 'Product', name: 'Lamp' })}${ld({ '@type': 'Product' })}${ld({ '@type': 'Event' })}</head>`)))
+    // One finding per type on the page, with what is missing from any of its entities.
+    expect(s.emitted.filter((f) => f.rule_id === 'seo.schema.incomplete').map((f) => [f.evidence_key, f.evidence])).toEqual([
+      ['Product', { type: 'Product', missing: ['offers, review or aggregateRating', 'name'] }],
+      ['Event', { type: 'Event', missing: ['name', 'startDate', 'location'] }],
+    ])
+  })
+
+  it('seo.url.hygiene: one finding per kind for the whole site, from indexable pages only', async () => {
+    expect(urlProblems(`${O}/Summer%20Sale`)).toEqual(['uppercase', 'spaces'])
+    expect(urlProblems(`${O}/shop;jsessionid=AB12`)).toEqual(['session_id'])
+    expect(urlProblems(`${O}/list?a=1&b=2&c=3&d=4&e=5&f=6&PHPSESSID=x`)).toEqual(['session_id', 'many_params'])
+    expect(urlProblems(`${O}/${'a'.repeat(120)}`)).toEqual(['long'])
+    // Underscores, a plus sign and capitals in the host or the query are fine.
+    expect(urlProblems('https://Site.example/load_event/c++?Sort=Name')).toEqual([])
+    // A language code in the path is not a capital letter problem (MDN's /en-US/); the rest of the path still counts.
+    expect(urlProblems(`${O}/en-US/docs/web`)).toEqual([])
+    expect(urlProblems(`${O}/zh-Hant-TW/a`)).toEqual([])
+    expect(urlProblems(`${O}/en-US/docs/Web`)).toEqual(['uppercase'])
+
+    const s = setup({}, {})
+    await seoSuite.onPage!(s.ctx, page(GOOD, {}, 200, '/About-Us'))
+    await seoSuite.onPage!(s.ctx, page(GOOD, {}, 200, '/Contact'))
+    await seoSuite.onPage!(s.ctx, page(GOOD.replace('</head>', '<meta name="robots" content="noindex"></head>'), {}, 200, '/Hidden'))
+    await seoSuite.onPage!(s.ctx, page(GOOD.replace('</head>', `<link rel="canonical" href="${O}/contact"></head>`), {}, 200, '/Contact-Old'))
+    await seoSuite.onSite!(s.ctx, emptySite())
+    const found = s.emitted.filter((f) => f.rule_id === 'seo.url.hygiene')
+    expect(found).toEqual([{ rule_id: 'seo.url.hygiene', url: null, evidence_key: 'uppercase', title: 'Page addresses with capital letters', evidence: { problem: 'uppercase', pages: 2, examples: ['/About-Us', '/Contact'] } }])
+  })
+
+  it('seo.robots.blocks_assets: same-site stylesheets and scripts robots.txt keeps search engines from, with the line', async () => {
+    const robots = 'User-agent: *\nDisallow: /admin\n\nUser-agent: Googlebot\nDisallow: /assets/private/\nDisallow: /js/\nAllow: /js/public.js\n'
+    const s = setup({ [`${O}/robots.txt`]: robots })
+    const head = '<link rel="stylesheet" href="/assets/private/site.css"><script src="/js/app.js"></script><script src="/js/public.js"></script><script src="https://cdn.example/js/x.js"></script><link rel="stylesheet" href="/css/ok.css">'
+    await seoSuite.onPage!(s.ctx, page(GOOD.replace('</head>', `${head}</head>`), {}, 200, '/a'))
+    await seoSuite.onPage!(s.ctx, page(GOOD.replace('</head>', '<script src="/js/app.js"></script></head>'), {}, 200, '/b'))
+    await seoSuite.onSite!(s.ctx, emptySite())
+    expect(s.emitted.filter((f) => f.rule_id === 'seo.robots.blocks_assets').map((f) => [f.url, f.source_url, f.evidence])).toEqual([
+      [`${O}/js/app.js`, `${O}/a`, { kind: 'script', pages: 2, examples: ['/a', '/b'], line: 6, rule: 'Disallow: /js/' }],
+      [`${O}/assets/private/site.css`, `${O}/a`, { kind: 'stylesheet', pages: 1, examples: ['/a'], line: 5, rule: 'Disallow: /assets/private/' }],
+    ])
+  })
+
+  it('asks for robots.txt once, and only when a rule needs it', async () => {
+    let asked = 0
+    const s = setup({ [`${O}/robots.txt`]: 'User-agent: *\nDisallow:\n' })
+    const text = s.ctx.text
+    s.ctx.text = async (u, o) => { asked += 1; return text(u, o) }
+    await seoSuite.onPage!(s.ctx, page(GOOD))
+    await seoSuite.onSite!(s.ctx, emptySite())
+    expect(asked).toBe(0)
+    await seoSuite.onPage!(s.ctx, page(GOOD.replace('</head>', '<script src="/app.js"></script></head>')))
+    await seoSuite.onSite!(s.ctx, emptySite([{ from: `${O}/sitemap.xml`, to: `${O}/p`, text: '', kind: 'sitemap' }]))
+    expect(asked).toBe(1)
   })
 })

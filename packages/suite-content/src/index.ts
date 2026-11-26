@@ -18,7 +18,7 @@
  * page that documents `{{ templates }}` or `undefined` is not reported.
  * Navigation, headers and footers do not count as a page's main text.
  */
-import type { CheckSuite, CrawledPage, SuiteCtx } from '@webtrax/engine'
+import { visibleText, wordCount, type CheckSuite, type SuiteCtx } from '@webtrax/engine'
 import type { RuleMeta } from '@webtrax/protocol'
 
 const rule = (id: string, severity: RuleMeta['severity'], title: string, why: string, fix: string): RuleMeta => ({
@@ -41,22 +41,10 @@ export const DUPLICATE_MIN_WORDS = 80
 export const DUPLICATE_MAX_BITS = 3
 const MAX_EVIDENCE_URLS = 10
 
-type Doc = CrawledPage['doc']['$']
 const squash = (s: string) => s.replace(/\s+/g, ' ').trim()
 
-/** The text people read, in order, with code samples and anything that is not prose left out. Blocks are separated by a line break. */
-export function visibleText($: Doc, main = false): string {
-  const root = main && $('main, [role="main"]').length ? $('main, [role="main"]').first().clone() : $('body').first().clone()
-  root.find('script, style, template, noscript, code, pre, kbd, samp, textarea, svg, iframe, select').remove()
-  if (main) root.find('nav, header, footer, aside, form, [role="navigation"], [role="banner"], [role="contentinfo"]').remove()
-  // cheerio joins blocks with nothing between them: keep them apart.
-  root.find('p, div, li, ul, ol, h1, h2, h3, h4, h5, h6, td, th, tr, table, br, hr, section, article, nav, header, footer, main, aside, form, dt, dd, figcaption, blockquote, summary, option').each((_, el) => { $(el).append('\n') })
-  // Links and buttons sit inside sentences, and side by side in menus: a space keeps their words apart.
-  root.find('a, button, label, span').each((_, el) => { $(el).append(' ') })
-  return root.text().split('\n').map(squash).filter(Boolean).join('\n')
-}
-
-export const wordCount = (text: string) => (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).length
+// The text people read and its words: in the engine, so the SEO suite counts words the same way.
+export { visibleText, wordCount }
 
 export interface Placeholder { kind: 'lorem_ipsum' | 'editor_prompt' | 'insert_marker' | 'template_tag' | 'empty_value'; quote: string }
 

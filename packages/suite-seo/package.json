@@ -2,7 +2,7 @@
   "name": "@webtrax/suite-seo",
   "version": "0.0.0",
   "private": true,
-  "description": "SEO basics suite for the Webtrax runner: titles, meta descriptions, headings, noindex and language.",
+  "description": "SEO suite for the Webtrax runner: titles, descriptions, headings, indexing, canonicals, social tags, hreflang, robots.txt, structured data, thin pages and page addresses.",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {

@@ -25,6 +25,8 @@ export interface Robots {
   /** Seconds, if the matching group sets one. */
   crawlDelay(): number | undefined
   sitemaps(): string[]
+  /** The 1-based line of the rule that decides `url`, if one does. */
+  matchingLine(url: string): number | undefined
 }
 
 export function parseRobots(robotsUrl: string, text: string, userAgent: string): Robots {
@@ -37,7 +39,11 @@ export function parseRobots(robotsUrl: string, text: string, userAgent: string):
       return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : undefined
     },
     sitemaps: () => robots.getSitemaps(),
+    matchingLine: (url) => {
+      const n = robots.getMatchingLineNumber(url, token)
+      return n > 0 ? n : undefined
+    },
   }
 }
 
-export const ALLOW_ALL: Robots = { isAllowed: () => true, crawlDelay: () => undefined, sitemaps: () => [] }
+export const ALLOW_ALL: Robots = { isAllowed: () => true, crawlDelay: () => undefined, sitemaps: () => [], matchingLine: () => undefined }

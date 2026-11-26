@@ -1,9 +1,9 @@
 {
   "defects": {
     "version": 2,
-    "score": 68,
+    "score": 69,
     "grade": "D",
-    "pages": 57,
+    "pages": 62,
     "suites": [
       "links",
       "security",
@@ -12,11 +12,11 @@
       "ai_readiness"
     ],
     "by_suite": {
-      "links": 66.9,
-      "security": 61.7,
-      "seo": 62.6,
-      "content": 83.5,
-      "ai_readiness": 95.7
+      "links": 69.1,
+      "security": 64.2,
+      "seo": 61.2,
+      "content": 84.4,
+      "ai_readiness": 96
     }
   },
   "plain": {

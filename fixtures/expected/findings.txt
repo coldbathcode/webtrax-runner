@@ -9,6 +9,7 @@ security.header.frame_protection_missing medium / <- -
 security.header.nosniff_missing low / <- -
 security.header.permissions_policy_missing info / <- -
 security.header.referrer_policy_missing low / <- -
+seo.content.thin low / <- -
 seo.lang.missing low / <- -
 seo.lang.missing low /about <- -
 seo.lang.missing low /blog <- -

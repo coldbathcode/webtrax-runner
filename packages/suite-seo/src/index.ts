@@ -12,8 +12,13 @@
  * whose canonical is another URL, the bare domain and www. both answering as
  * the site, pages more than four clicks from the start page, descriptions
  * search results cut off, and social preview images that do not load.
+ *
+ * C06.3 (third slice): stylesheets and scripts robots.txt keeps search
+ * engines from, structured data without the properties a rich result needs,
+ * pages with little text of their own, and page addresses that are hard to
+ * read or make duplicates (one finding per kind, for the whole site).
  */
-import { linkProblem, parseRobots, registrableDomain, type CheckSuite, type SuiteCtx } from '@webtrax/engine'
+import { linkProblem, parseRobots, registrableDomain, visibleText, wordCount, type CheckSuite, type Robots, type SuiteCtx } from '@webtrax/engine'
 import { normaliseUrl, type RuleMeta } from '@webtrax/protocol'
 
 const rule = (id: string, severity: RuleMeta['severity'], title: string, why: string, fix: string): RuleMeta => ({
@@ -26,6 +31,16 @@ export const DESCRIPTION_MAX = 160
 export const MAX_CLICKS = 4
 /** Distinct social preview images checked per run. */
 export const OG_IMAGE_CHECKS = 20
+/** Fewer words than this in a page's main content is thin. */
+export const THIN_WORDS = 150
+/** Below this the content suite's content.empty_page has it (its EMPTY_PAGE_WORDS): thin starts here. */
+export const THIN_FROM_WORDS = 20
+/** A page address longer than this (characters, the whole URL) is long. */
+export const URL_MAX_LENGTH = 115
+/** More query parameters than this on an indexable page. */
+export const URL_MAX_PARAMS = 5
+/** Blocked stylesheets and scripts reported per run. */
+export const BLOCKED_ASSETS_REPORTED = 20
 
 export const SEO_RULES = [
   rule('seo.title.missing', 'medium', 'Page has no title', 'The title is the headline in search results and browser tabs; without one, search engines make one up.', 'Add a unique, descriptive <title> to the page.'),
@@ -50,6 +65,10 @@ export const SEO_RULES = [
   rule('seo.meta_description.too_long', 'info', `Meta description is longer than ${DESCRIPTION_MAX} characters`, 'Search results cut long descriptions off, often before the sentence that would make someone click. Search engines often write their own snippet anyway, so this is advice, not counted in the score.', `Keep the description under about ${DESCRIPTION_MAX} characters, with what the page offers first.`),
   rule('seo.social.og_image_broken', 'medium', 'Social preview image does not load', 'Links to the page shared in chat, social networks and AI assistants show a blank or broken preview instead of the image.', 'Make og:image an absolute https:// URL of an image that loads (at least 1200 x 630 pixels is the common size), or fix the image at that address.'),
   rule('seo.robots.blocks_sitemap_url', 'high', 'Sitemap lists a page that robots.txt blocks', 'You ask search engines to index the page in the sitemap but forbid them to crawl it in robots.txt, so it cannot be indexed properly.', 'Remove the page from the sitemap, or change the Disallow rule in robots.txt that matches it.'),
+  rule('seo.robots.blocks_assets', 'medium', 'robots.txt blocks a stylesheet or script your pages use', 'Search engines render pages with their CSS and JavaScript, as a browser does. With them blocked they see the page unstyled, or without what the scripts add, and may judge it broken or not mobile-friendly.', 'Let search engines fetch the file: narrow or remove the Disallow rule in robots.txt that matches it (the finding names the line), or add an Allow rule for it.'),
+  rule('seo.schema.incomplete', 'medium', 'Structured data is missing properties search engines need', 'Search engines show rich results (prices and ratings, breadcrumbs, questions and answers, events) only when the structured data has the properties they require. Without them the markup is ignored.', 'Add the missing properties named in the finding to the JSON-LD, then check the page with a rich results test.'),
+  rule('seo.content.thin', 'low', 'Page has little text of its own', `Fewer than ${THIN_WORDS} words in the main content (menus, header and footer left out) gives search engines little to judge what the page is about, so it ranks poorly. Counted in the HTML the server sends.`, 'Add the text the page is for (what it offers, the details, answers to common questions), merge it into a related page, or keep it out of search with noindex if it is not meant to be found.'),
+  rule('seo.url.hygiene', 'info', 'Page addresses are hard to read or make duplicates', 'Capital letters, spaces, session IDs, very long addresses and many query parameters make URLs hard to read and share, and can give one page several addresses that search engines index separately. Advice, not counted in the score.', 'Use short, lowercase addresses with hyphens between words, and keep session IDs out of links. When you change an address, redirect the old one with a 301.'),
 ] satisfies RuleMeta[]
 
 /** BCP 47 as hreflang uses it: language, optional script, optional region; or x-default. */
@@ -71,11 +90,119 @@ export function previewOrLocalHost(host: string): boolean {
   return h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h === '::1' || /^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)
     || /(^|\.)(vercel\.app|netlify\.app|pages\.dev|onrender\.com|fly\.dev|amplifyapp\.com|web\.app|firebaseapp\.com|ngrok\.io|ngrok-free\.app)$/.test(h)
 }
-interface Seen { descriptions: Map<string, string[]>; alternates: Map<string, { lang: string; href: string }[]>; noindex: Set<string>; ogImages: Map<string, string[]> }
+type UrlProblem = 'uppercase' | 'spaces' | 'session_id' | 'long' | 'many_params'
+const URL_PROBLEM_TITLES: Record<UrlProblem, string> = {
+  uppercase: 'Page addresses with capital letters',
+  spaces: 'Page addresses with spaces',
+  session_id: 'Page addresses with a session ID',
+  long: `Page addresses longer than ${URL_MAX_LENGTH} characters`,
+  many_params: `Page addresses with more than ${URL_MAX_PARAMS} query parameters`,
+}
+/** A language code as a path segment (en-US, pt-BR, zh-Hant, es-419). */
+const LOCALE_SEGMENT = /^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|\d{3}))?$/
+const SESSION_PARAM = /^(jsessionid|phpsessid|sessionid|session_id|sid|aspsessionid\w*|cfid|cftoken|zenid|oscsid)$/i
+
+/** What makes a page address hard to read or a likely duplicate. Underscores are left alone: common, harmless and only a style. */
+export function urlProblems(url: string): UrlProblem[] {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return []
+  }
+  const out: UrlProblem[] = []
+  const path = u.pathname
+  // A ;jsessionid= segment is a session ID, and /en-US/ or /zh-Hant/ a language, whatever their case.
+  const cased = path.replace(/;jsessionid=[^/]*/i, '').split('/').filter((seg) => !LOCALE_SEGMENT.test(seg)).join('/')
+  if (/[A-Z]/.test(cased)) out.push('uppercase')
+  // A + in a path is a plus sign (/c++), not a space.
+  if (/\s/.test(decodeURIComponentSafe(path))) out.push('spaces')
+  if (/;jsessionid=/i.test(path) || [...u.searchParams.keys()].some((k) => SESSION_PARAM.test(k))) out.push('session_id')
+  if (url.length > URL_MAX_LENGTH) out.push('long')
+  if ([...u.searchParams.keys()].length > URL_MAX_PARAMS) out.push('many_params')
+  return out
+}
+const decodeURIComponentSafe = (s: string) => { try { return decodeURIComponent(s) } catch { return s } }
+
+/** schema.org types and the properties a rich result needs (Google's required properties; Article and Organization: a name). */
+const REQUIRED: { types: RegExp; label: string; check: (node: Record<string, unknown>) => string[] }[] = [
+  { types: /^Product$/, label: 'Product', check: (n) => [...(has(n.name) ? [] : ['name']), ...(has(n.offers) || has(n.review) || has(n.aggregateRating) ? [] : ['offers, review or aggregateRating'])] },
+  { types: /^(Article|NewsArticle|BlogPosting|TechArticle|ScholarlyArticle|Report)$/, label: 'Article', check: (n) => (has(n.headline) || has(n.name) ? [] : ['headline']) },
+  { types: /^(Organization|Corporation|NGO|EducationalOrganization|GovernmentOrganization|OnlineStore|OnlineBusiness)$/, label: 'Organization', check: (n) => (has(n.name) ? [] : ['name']) },
+  {
+    types: /^(LocalBusiness|Restaurant|Store|Hotel|Dentist|AutoRepair|ProfessionalService|MedicalBusiness|LegalService|FinancialService|RealEstateAgent|FoodEstablishment|CafeOrCoffeeShop|Bakery|BarOrPub|HealthAndBeautyBusiness|HomeAndConstructionBusiness|LodgingBusiness|TravelAgency|ChildCare)$/,
+    label: 'LocalBusiness', check: (n) => [...(has(n.name) ? [] : ['name']), ...(has(n.address) ? [] : ['address'])],
+  },
+  {
+    types: /^BreadcrumbList$/, label: 'BreadcrumbList',
+    check: (n) => {
+      const items = asList(n.itemListElement)
+      if (!items.length) return ['itemListElement']
+      const out = new Set<string>()
+      items.forEach((it, i) => {
+        if (!isObj(it)) return
+        const item = it.item
+        if (!has(it.position)) out.add('itemListElement.position')
+        if (!has(it.name) && !(isObj(item) && has(item.name))) out.add('itemListElement.name')
+        // The last crumb is the page itself and may leave out its URL.
+        if (i < items.length - 1 && !has(item)) out.add('itemListElement.item')
+      })
+      return [...out]
+    },
+  },
+  {
+    types: /^FAQPage$/, label: 'FAQPage',
+    check: (n) => {
+      const questions = asList(n.mainEntity)
+      if (!questions.length) return ['mainEntity']
+      const out = new Set<string>()
+      for (const q of questions) {
+        if (!isObj(q)) continue
+        if (!has(q.name)) out.add('mainEntity.name')
+        const answer = asList(q.acceptedAnswer)[0]
+        if (!isObj(answer) || !has(answer.text)) out.add('mainEntity.acceptedAnswer.text')
+      }
+      return [...out]
+    },
+  },
+  { types: /^(Event|\w+Event)$/, label: 'Event', check: (n) => ['name', 'startDate', 'location'].filter((k) => !has(n[k])) },
+]
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : v === undefined || v === null ? [] : [v])
+const has = (v: unknown) => v !== undefined && v !== null && !(typeof v === 'string' && !v.trim()) && !(Array.isArray(v) && !v.length)
+const typesOf = (n: Record<string, unknown>) => asList(n['@type']).filter((t): t is string => typeof t === 'string').map((t) => t.replace(/^https?:\/\/schema\.org\//i, ''))
+
+/** The top-level entities of a JSON-LD block (an array, or a @graph); nested ones (an Article's publisher) are not judged on their own. */
+export function schemaProblems(raw: string): { type: string; missing: string[] }[] {
+  let data: unknown
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    return [] // ai_readiness.schema.invalid reports JSON that does not parse
+  }
+  const nodes = asList(data).flatMap((d) => (isObj(d) && Array.isArray(d['@graph']) ? [d, ...d['@graph']] : [d])).filter(isObj).slice(0, 50)
+  const out: { type: string; missing: string[] }[] = []
+  for (const node of nodes) {
+    const types = typesOf(node)
+    const spec = REQUIRED.find((r) => types.some((t) => r.types.test(t)))
+    if (!spec) continue
+    const missing = spec.check(node)
+    if (missing.length) out.push({ type: spec.label, missing })
+  }
+  return out
+}
+
+interface Seen {
+  descriptions: Map<string, string[]>; alternates: Map<string, { lang: string; href: string }[]>; noindex: Set<string>; ogImages: Map<string, string[]>
+  /** Same-site stylesheets and scripts, with the pages that use them. */
+  assets: Map<string, { kind: 'stylesheet' | 'script'; pages: string[] }>
+  /** Indexable pages by what is wrong with their address. */
+  urls: Map<UrlProblem, string[]>
+}
 const seen = new WeakMap<SuiteCtx, Seen>()
 const stateFor = (ctx: SuiteCtx): Seen => {
   let s = seen.get(ctx)
-  if (!s) seen.set(ctx, (s = { descriptions: new Map(), alternates: new Map(), noindex: new Set(), ogImages: new Map() }))
+  if (!s) seen.set(ctx, (s = { descriptions: new Map(), alternates: new Map(), noindex: new Set(), ogImages: new Map(), assets: new Map(), urls: new Map() }))
   return s
 }
 
@@ -137,6 +264,49 @@ export const seoSuite: CheckSuite = {
     }
     // A page kept out of search is rarely shared either (an app's sign-in page).
     if (og.length === 3 && !noindex) await ctx.emit({ rule_id: 'seo.social.og_missing', url, evidence: { missing: og } })
+
+    // Same-site stylesheets and scripts, for robots.txt after the crawl.
+    const assets = [
+      ...$('link[rel~="stylesheet" i][href]').map((_, el) => ({ kind: 'stylesheet' as const, href: $(el).attr('href')! })).get(),
+      ...$('script[src]').map((_, el) => ({ kind: 'script' as const, href: $(el).attr('src')! })).get(),
+    ]
+    for (const a of assets.slice(0, 100)) {
+      const abs = resolve(a.href.trim())
+      if (!abs || new URL(abs).origin !== ctx.origin) continue
+      const entry = state.assets.get(abs) ?? state.assets.set(abs, { kind: a.kind, pages: [] }).get(abs)!
+      if (!entry.pages.includes(own) && entry.pages.length < 50) entry.pages.push(own)
+    }
+
+    // Structured data with the properties a rich result needs missing: one finding per type on the page.
+    const incomplete = new Map<string, Set<string>>()
+    $('script[type="application/ld+json" i]').each((_, el) => {
+      for (const p of schemaProblems($(el).text().trim())) {
+        const set = incomplete.get(p.type) ?? incomplete.set(p.type, new Set()).get(p.type)!
+        for (const m of p.missing) set.add(m)
+      }
+    })
+    for (const [type, missing] of incomplete) await ctx.emit({ rule_id: 'seo.schema.incomplete', url, evidence_key: type, evidence: { type, missing: [...missing].slice(0, 10) } })
+
+    // The page search engines would index under this address: not kept out, not naming another URL.
+    const indexable = !noindex && !(canonicals.length === 1 && canonicals[0] !== own)
+    if (indexable) {
+      for (const problem of urlProblems(own)) {
+        const list = state.urls.get(problem) ?? state.urls.set(problem, []).get(problem)!
+        if (!list.includes(own)) list.push(own)
+      }
+      // Thin: 20 to 149 words of main content. Not a form's page (sign in, search, contact: its fields are its content;
+      // a newsletter box in the footer does not count), a redirect stub, or a language written without spaces between
+      // words (words cannot be counted that way).
+      const lang = ($('html').attr('lang') ?? '').trim().toLowerCase()
+      const fields = 'form input:not([type="hidden" i]), form textarea, form select'
+      const mainEl = $('main, [role="main"]').first()
+      const isForm = (mainEl.length ? mainEl.find(fields) : $(fields).filter((_, el) => !$(el).closest('nav, header, footer, aside, [role="contentinfo"]').length)).length > 0
+      if (!isForm && !$('meta[http-equiv="refresh" i]').length && !/^(zh|ja|ko|th|lo|km|my)\b/.test(lang)) {
+        const words = wordCount(visibleText($, true))
+        const alt = wordCount($('main img[alt], body img[alt]').toArray().map((el) => $(el).attr('alt') ?? '').join(' '))
+        if (words < THIN_WORDS && words + alt >= THIN_FROM_WORDS) await ctx.emit({ rule_id: 'seo.content.thin', url, evidence: { words } })
+      }
+    }
 
     // Heading levels: the first skip (h2 → h4) is enough to report.
     let last = 0
@@ -270,16 +440,45 @@ export const seoSuite: CheckSuite = {
       if (missing.length) await ctx.emit({ rule_id: 'seo.hreflang.invalid', url: from, evidence_key: 'return', evidence: { problems: ['alternates do not link back'], pages: missing.slice(0, 5) } })
     }
 
-    // Sitemap URLs that robots.txt blocks for search engines (Googlebot's reading of it).
-    const listed = [...new Set(site.edges.filter((e) => e.kind === 'sitemap').map((e) => e.to))]
-    if (listed.length) {
+    // robots.txt as search engines read it (Googlebot's group), fetched once and only when a rule needs it.
+    let robots: { rules: Robots; lines: string[] } | null | undefined
+    const searchRobots = async () => {
+      if (robots !== undefined) return robots
       const robotsUrl = `${site.origin}/robots.txt`
-      const robots = await ctx.text(robotsUrl)
-      if (robots.status === 200 && robots.body && !/\bhtml\b/i.test(robots.contentType ?? '')) {
-        const rules = parseRobots(robotsUrl, robots.body, 'Googlebot')
-        const blocked = listed.filter((u) => u.startsWith(`${site.origin}/`) && !rules.isAllowed(u))
-        for (const url of blocked.slice(0, 50)) await ctx.emit({ rule_id: 'seo.robots.blocks_sitemap_url', url })
+      const r = await ctx.text(robotsUrl)
+      robots = r.status === 200 && r.body && !/\bhtml\b/i.test(r.contentType ?? '') ? { rules: parseRobots(robotsUrl, r.body, 'Googlebot'), lines: r.body.split(/\r?\n/) } : null
+      return robots
+    }
+
+    // Sitemap URLs that robots.txt blocks for search engines.
+    const listed = [...new Set(site.edges.filter((e) => e.kind === 'sitemap').map((e) => e.to))]
+    const forSitemap = listed.length ? await searchRobots() : null
+    if (forSitemap) {
+      const blocked = listed.filter((u) => u.startsWith(`${site.origin}/`) && !forSitemap.rules.isAllowed(u))
+      for (const url of blocked.slice(0, 50)) await ctx.emit({ rule_id: 'seo.robots.blocks_sitemap_url', url })
+    }
+
+    // Same-site stylesheets and scripts that robots.txt keeps search engines from. Another host's files follow
+    // that host's robots.txt, which is not this site's to change.
+    const forAssets = state.assets.size ? await searchRobots() : null
+    if (forAssets) {
+      const blocked = [...state.assets].filter(([u]) => !forAssets.rules.isAllowed(u)).sort((a, b) => b[1].pages.length - a[1].pages.length || (a[0] < b[0] ? -1 : 1))
+      for (const [asset, { kind, pages }] of blocked.slice(0, BLOCKED_ASSETS_REPORTED)) {
+        const line = forAssets.rules.matchingLine(asset)
+        const sorted = [...pages].sort()
+        await ctx.emit({
+          rule_id: 'seo.robots.blocks_assets', url: asset, source_url: sorted[0]!,
+          evidence: { kind, pages: sorted.length, examples: sorted.slice(0, 5).map(path), ...(line ? { line, rule: forAssets.lines[line - 1]?.trim().slice(0, 200) } : {}) },
+        })
       }
+    }
+
+    // Page addresses: one finding per kind of problem, for the whole site.
+    for (const problem of Object.keys(URL_PROBLEM_TITLES) as UrlProblem[]) {
+      const urls = state.urls.get(problem)
+      if (!urls?.length) continue
+      const sorted = [...urls].sort()
+      await ctx.emit({ rule_id: 'seo.url.hygiene', url: null, evidence_key: problem, title: URL_PROBLEM_TITLES[problem], evidence: { problem, pages: sorted.length, examples: sorted.slice(0, 10).map(path) } })
     }
   },
 }
