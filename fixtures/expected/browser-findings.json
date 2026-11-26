@@ -1,0 +1,68 @@
+{
+  "measure": [
+    {
+      "rule_id": "a11y.button_name",
+      "path": "/defects/a11y.button_name",
+      "severity": "high"
+    },
+    {
+      "rule_id": "a11y.color_contrast",
+      "path": "/defects/a11y.color_contrast",
+      "severity": "medium"
+    },
+    {
+      "rule_id": "a11y.html_has_lang",
+      "path": "/defects/a11y.html_has_lang",
+      "severity": "medium"
+    },
+    {
+      "rule_id": "a11y.image_alt",
+      "path": "/defects/a11y.image_alt",
+      "severity": "high"
+    },
+    {
+      "rule_id": "a11y.label",
+      "path": "/defects/a11y.label",
+      "severity": "high"
+    },
+    {
+      "rule_id": "a11y.link_name",
+      "path": "/defects/a11y.link_name",
+      "severity": "medium"
+    },
+    {
+      "rule_id": "ai_readiness.render.js_only",
+      "path": "/defects/ai_readiness.render.js_only",
+      "severity": "high"
+    },
+    {
+      "rule_id": "performance.cls.high",
+      "path": "/defects/performance.cls.high"
+    },
+    {
+      "rule_id": "performance.lcp.slow",
+      "path": "/defects/performance.lcp.slow"
+    },
+    {
+      "rule_id": "performance.page_weight",
+      "path": "/defects/performance.page_weight"
+    },
+    {
+      "rule_id": "performance.ttfb.slow",
+      "path": "/defects/performance.ttfb.slow"
+    }
+  ],
+  "device": [
+    {
+      "rule_id": "links.device.covered",
+      "path": "/defects/links.device.covered",
+      "severity": "medium"
+    },
+    {
+      "rule_id": "links.device.unreachable_on_phone",
+      "path": "/defects/links.device.unreachable_on_phone",
+      "source": "/",
+      "severity": "medium"
+    }
+  ]
+}

@@ -37,11 +37,12 @@ const ALL_SUITES: CheckSuite[] = [...HTTP_SUITES, a11ySuite, performanceSuite]
  */
 const NOT_HERE: Record<string, string> = {
   'links.not_checked': 'needs more link targets than maxLinkChecks (5,000); engine test behaviour.test.ts',
-  'links.device.unreachable_on_phone': 'browser stage: suite-links test/rendered.test.ts and engine test/browser.test.ts',
-  'links.device.covered': 'browser stage: suite-links test/rendered.test.ts',
-  'ai_readiness.render.js_only': 'browser stage: suite-ai test/render.test.ts',
-  'performance.*': 'browser stage: suite-performance test/performance.test.ts',
-  'a11y.*': 'browser stage, axe-core\'s own rules: suite-a11y test/a11y.test.ts',
+  // The browser-stage rules have their own fixture in real Chromium: test/browser-fixture.test.ts (fixtures/site/browser.mjs).
+  'links.device.unreachable_on_phone': 'browser stage: test/browser-fixture.test.ts',
+  'links.device.covered': 'browser stage: test/browser-fixture.test.ts',
+  'ai_readiness.render.js_only': 'browser stage: test/browser-fixture.test.ts',
+  'performance.*': 'browser stage: test/browser-fixture.test.ts (all four)',
+  'a11y.*': 'browser stage: test/browser-fixture.test.ts has six of axe-core\'s rules; the rest are axe-core\'s own, tested there',
 }
 const notHere = (rule: string) => Object.keys(NOT_HERE).some((k) => k === rule || (k.endsWith('.*') && rule.startsWith(k.slice(0, -1))))
 

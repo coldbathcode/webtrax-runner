@@ -34,20 +34,19 @@ interface Measured { ttfb: number; fcp: number | null; lcp: number | null; cls: 
 /** Runs in the page after load: Navigation Timing, paint and LCP entries, layout shifts and resources. */
 const MEASURE = async (): Promise<Measured> => {
   const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
-  // Paint and LCP entries can arrive after load; buffered observers collect them for half a second.
-  const { fcp, lcp } = await new Promise<{ fcp: number | null; lcp: number | null }>((resolve) => {
+  // Paint, LCP and layout shifts can arrive after load; buffered observers collect them for half a second.
+  // LCP and layout-shift entries are never in the timeline's buffer (getEntriesByType gives none): only an observer sees them.
+  const { fcp, lcp, cls } = await new Promise<{ fcp: number | null; lcp: number | null; cls: number }>((resolve) => {
     let fcpAt: number | null = performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null
     let lcpAt: number | null = null
+    let shift = 0
     try {
       new PerformanceObserver((list) => { for (const e of list.getEntries()) if (e.name === 'first-contentful-paint') fcpAt = e.startTime }).observe({ type: 'paint', buffered: true })
       new PerformanceObserver((list) => { for (const e of list.getEntries()) lcpAt = e.startTime }).observe({ type: 'largest-contentful-paint', buffered: true })
+      new PerformanceObserver((list) => { for (const e of list.getEntries() as unknown as { value: number; hadRecentInput: boolean }[]) if (!e.hadRecentInput) shift += e.value }).observe({ type: 'layout-shift', buffered: true })
     } catch { /* unsupported */ }
-    setTimeout(() => resolve({ fcp: fcpAt, lcp: lcpAt }), 500)
+    setTimeout(() => resolve({ fcp: fcpAt, lcp: lcpAt, cls: shift }), 500)
   })
-  let cls = 0
-  try {
-    for (const e of performance.getEntriesByType('layout-shift') as unknown as { value: number; hadRecentInput: boolean }[]) if (!e.hadRecentInput) cls += e.value
-  } catch { /* unsupported */ }
   const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[]
   const bytes = (nav?.transferSize ?? 0) + resources.reduce((sum, r) => sum + (r.transferSize || 0), 0)
   return { ttfb: nav ? nav.responseStart - nav.startTime : 0, fcp, lcp, cls, bytes, requests: resources.length + 1, domContentLoaded: nav ? nav.domContentLoadedEventEnd - nav.startTime : 0 }
