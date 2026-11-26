@@ -113,8 +113,9 @@ describe('a check that did not run is not a clean result (V2-COR-01)', () => {
     const throws: CheckSuite = { id: 'seo', version: '1', requires: ['http'], rules: [rule], onPage(_c, p) { if (p.url.endsWith('/b')) throw new Error('boom') } }
     const fine: CheckSuite = { id: 'links', version: '1', requires: ['http'], rules: [] }
     const browser: CheckSuite = { id: 'a11y', version: '1', requires: ['http', 'browser'], rules: [], onBrowserPage() {} }
-    // The time budget runs out at once, so the browser stage never starts.
-    const r = await crawl(spec('/', {}, { seo: { enabled: true }, links: { enabled: true }, a11y: { enabled: true } }), deps({ suites: [throws, fine, browser], options: { retryDelayMs: 1, timeBudgetMs: 400, drainMs: 2000 } }))
+    // The browser stage waits for room longer than the time budget lasts, so it never starts (however fast the crawl).
+    const slowGate = async <T>(stage: () => Promise<T>) => { await new Promise((r) => setTimeout(r, 600)); return stage() }
+    const r = await crawl(spec('/', {}, { seo: { enabled: true }, links: { enabled: true }, a11y: { enabled: true } }), deps({ suites: [throws, fine, browser], browserGate: slowGate, options: { retryDelayMs: 1, timeBudgetMs: 400, drainMs: 2000 } }))
     const by = Object.fromEntries(r.summary.suites.map((s) => [s.id, s]))
     expect(by.links).toEqual({ id: 'links', version: '1', requires: ['http'] })
     expect(by.a11y).toMatchObject({ complete: false, skipped: true })
